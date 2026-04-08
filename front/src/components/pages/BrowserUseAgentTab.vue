@@ -1,73 +1,89 @@
 <template>
   <div class="browser-use-agent-tab">
-    <el-row :gutter="20">
-      <el-col :span="24">
-        <el-card class="chat-card">
-          <el-chat :messages="chatHistory" :show-timestamp="true" height="600">
-            <template slot="footer">
-              <el-input
-                v-model="userInput"
-                placeholder="Enter your task or response..."
-                type="textarea"
-                :rows="3"
-                @keyup.enter.native="handleInputSubmit"
-              ></el-input>
-              <el-row class="button-row">
-                <el-button
-                  :disabled="isRunning && !isWaitingForHelp"
-                  type="danger"
-                  @click="handleStop"
-                >⏹️ Stop</el-button>
-                <el-button
-                  :disabled="!isRunning"
-                  :type="isPaused ? 'primary' : 'warning'"
-                  @click="handlePauseResume"
-                >{{ isPaused ? '▶️ Resume' : '⏸️ Pause' }}</el-button>
-                <el-button
-                  :disabled="isRunning"
-                  type="info"
-                  @click="handleClear"
-                >🗑️ Clear</el-button>
-                <el-button
-                  :disabled="!userInput.trim() || (isRunning && !isWaitingForHelp)"
-                  type="primary"
-                  @click="handleInputSubmit"
-                >{{ isWaitingForHelp ? '✔️ Submit Response' : '▶️ Submit Task' }}</el-button>
-              </el-row>
-            </template>
-          </el-chat>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-row :gutter="20" v-if="showBrowserView">
-      <el-col :span="24">
-        <el-card class="browser-view-card">
-          <div slot="header" class="clearfix">
-            <span>Browser Live View</span>
+    <!-- 聊天历史记录 -->
+    <el-card class="chat-card">
+      <div slot="header" class="clearfix">
+        <span>Chat History</span>
+      </div>
+      <div class="chat-history" ref="chatHistory">
+        <div
+          v-for="(msg, index) in chatHistory"
+          :key="index"
+          :class="['chat-message', msg.position]"
+        >
+          <div class="message-content">
+            <div class="message-text">{{ msg.content }}</div>
+            <div class="message-time">{{ formatTime(msg.timestamp) }}</div>
           </div>
-          <div v-html="browserView" class="browser-view"></div>
-        </el-card>
-      </el-col>
-    </el-row>
+          <div class="message-avatar">{{ msg.position === 'right' ? 'You' : 'AI' }}</div>
+        </div>
+        <div v-if="isWaitingForHelp" class="waiting-indicator">
+          <i class="el-icon-loading"></i> AI is waiting for your help...
+        </div>
+        <div v-if="isRunning && !isWaitingForHelp" class="running-indicator">
+          <i class="el-icon-loading"></i> AI is thinking...
+        </div>
+      </div>
+    </el-card>
 
-    <el-row :gutter="20" v-if="taskOutputs">
-      <el-col :span="24">
-        <el-card class="task-outputs-card">
-          <div slot="header" class="clearfix">
-            <span>Task Outputs</span>
-          </div>
-          <el-row :gutter="20">
-            <el-col :span="12">
-              <el-link v-if="historyFile" type="primary" download :href="historyFile">📄 Download Agent History</el-link>
-            </el-col>
-            <el-col :span="12">
-              <img v-if="recordingGif" :src="recordingGif" class="recording-gif">
-            </el-col>
-          </el-row>
-        </el-card>
-      </el-col>
-    </el-row>
+    <!-- 浏览器实时视图 -->
+    <el-card v-if="showBrowserView" class="browser-view-card">
+      <div slot="header" class="clearfix">
+        <span>Browser Live View</span>
+      </div>
+      <div v-html="browserView" class="browser-view"></div>
+    </el-card>
+
+    <!-- 任务输出 -->
+    <el-card v-if="taskOutputs" class="task-outputs-card">
+      <div slot="header" class="clearfix">
+        <span>Task Outputs</span>
+      </div>
+      <el-row :gutter="20">
+        <el-col :span="12">
+          <a v-if="historyFile" :href="historyFile" :download="getHistoryFileName()" class="download-link">
+            📄 Download Agent History
+          </a>
+        </el-col>
+        <el-col :span="12">
+          <img v-if="recordingGif" :src="recordingGif" class="recording-gif">
+        </el-col>
+      </el-row>
+    </el-card>
+
+    <!-- 输入区域 -->
+    <el-card class="input-card">
+      <el-input
+        v-model="userInput"
+        placeholder="Enter your task or response..."
+        type="textarea"
+        :rows="3"
+        @keyup.enter.native="handleInputSubmit"
+        :disabled="isRunning && !isWaitingForHelp"
+      ></el-input>
+      <el-row class="button-row">
+        <el-button
+          :disabled="!isRunning"
+          type="danger"
+          @click="handleStop"
+        >⏹️ Stop</el-button>
+        <el-button
+          :disabled="!isRunning"
+          :type="isPaused ? 'primary' : 'warning'"
+          @click="handlePauseResume"
+        >{{ isPaused ? '▶️ Resume' : '⏸️ Pause' }}</el-button>
+        <el-button
+          :disabled="isRunning"
+          type="info"
+          @click="handleClear"
+        >🗑️ Clear</el-button>
+        <el-button
+          :disabled="!userInput.trim() || (isRunning && !isWaitingForHelp)"
+          type="primary"
+          @click="handleInputSubmit"
+        >{{ isWaitingForHelp ? '✔️ Submit Response' : '▶️ Submit Task' }}</el-button>
+      </el-row>
+    </el-card>
   </div>
 </template>
 
@@ -90,6 +106,18 @@ export default {
     }
   },
   methods: {
+    // 格式化时间
+    formatTime(timestamp) {
+      if (!timestamp) return ''
+      const date = new Date(timestamp)
+      return date.toLocaleTimeString()
+    },
+    // 获取历史文件名
+    getHistoryFileName() {
+      const timestamp = new Date().toISOString().split('T')[0]
+      return `agent-history-${timestamp}.json`
+    },
+    // 处理输入提交
     async handleInputSubmit() {
       if (!this.userInput.trim()) {
         return
@@ -101,34 +129,43 @@ export default {
         await this.handleRunTask(this.userInput)
       }
     },
-
+    // 处理运行任务
     async handleRunTask(task) {
       this.isRunning = true
       this.isWaitingForHelp = false
       this.currentTaskId = Date.now().toString()
 
-      // 发送任务到后端
+      // 添加用户输入到聊天历史
+      this.chatHistory.push({
+        type: 'text',
+        content: task,
+        timestamp: new Date(),
+        position: 'right'
+      })
+
       try {
+        // 发送任务到后端
         const response = await this.$api.browserUseAgent.run({
           task: task
         })
         if (response.task_id) {
           this.currentTaskId = response.task_id
-          this.chatHistory.push({
-            type: 'text',
-            content: task,
-            timestamp: new Date(),
-            position: 'right'
-          })
           this.userInput = ''
+          // 开始监控任务状态
           this.startMonitoring()
         }
       } catch (error) {
-        this.$message.error('Failed to start agent: ' + error.message)
+        console.error('Failed to run task:', error)
         this.isRunning = false
+        this.chatHistory.push({
+          type: 'text',
+          content: `Error: ${error.message}`,
+          timestamp: new Date(),
+          position: 'left'
+        })
       }
     },
-
+    // 处理停止任务
     async handleStop() {
       if (!this.currentTaskId) {
         return
@@ -139,10 +176,10 @@ export default {
         this.isPaused = false
         this.isWaitingForHelp = false
       } catch (error) {
-        this.$message.error('Failed to stop agent: ' + error.message)
+        console.error('Failed to stop task:', error)
       }
     },
-
+    // 处理暂停/恢复
     async handlePauseResume() {
       if (!this.currentTaskId) {
         return
@@ -157,10 +194,10 @@ export default {
           this.isPaused = true
         }
       } catch (error) {
-        this.$message.error('Failed to pause/resume agent: ' + error.message)
+        console.error('Failed to pause/resume task:', error)
       }
     },
-
+    // 处理清除
     async handleClear() {
       this.userInput = ''
       this.chatHistory = []
@@ -174,7 +211,7 @@ export default {
       this.taskOutputs = false
       this.currentTaskId = null
     },
-
+    // 处理用户帮助
     async handleUserHelp(response) {
       try {
         await this.$api.browserUseAgent.respond({
@@ -184,28 +221,38 @@ export default {
         this.isWaitingForHelp = false
         this.userInput = ''
       } catch (error) {
-        this.$message.error('Failed to send response: ' + error.message)
+        console.error('Failed to send response:', error)
       }
     },
-
+    // 开始监控任务状态
     async startMonitoring() {
       while (this.isRunning) {
         try {
           const status = await this.$api.browserUseAgent.getStatus(this.currentTaskId)
           if (status) {
-            this.updateChatHistory(status.chat_history)
-            this.updateBrowserView(status.browser_view)
-
+            // 更新聊天历史
+            if (status.chat_history) {
+              this.updateChatHistory(status.chat_history)
+            }
+            // 更新浏览器视图
+            if (status.browser_view) {
+              this.updateBrowserView(status.browser_view)
+            }
+            // 检查是否需要帮助
             if (status.is_waiting_for_help) {
               this.isWaitingForHelp = true
             }
-
+            // 检查任务输出
             if (status.task_outputs) {
               this.taskOutputs = true
-              this.historyFile = status.history_file
-              this.recordingGif = status.recording_gif
+              if (status.history_file) {
+                this.historyFile = status.history_file
+              }
+              if (status.recording_gif) {
+                this.recordingGif = status.recording_gif
+              }
             }
-
+            // 检查任务是否完成
             if (!status.is_running) {
               this.isRunning = false
               this.isPaused = false
@@ -219,20 +266,27 @@ export default {
         await this.sleep(1000)
       }
     },
-
+    // 更新聊天历史
     updateChatHistory(messages) {
       if (messages && messages.length > this.chatHistory.length) {
         this.chatHistory = messages
+        // 滚动到底部
+        this.$nextTick(() => {
+          const chatHistory = this.$refs.chatHistory
+          if (chatHistory) {
+            chatHistory.scrollTop = chatHistory.scrollHeight
+          }
+        })
       }
     },
-
+    // 更新浏览器视图
     updateBrowserView(view) {
       if (view) {
         this.browserView = view
         this.showBrowserView = true
       }
     },
-
+    // 睡眠
     sleep(ms) {
       return new Promise(resolve => setTimeout(resolve, ms))
     }
@@ -247,6 +301,87 @@ export default {
 
 .chat-card {
   margin-bottom: 20px;
+}
+
+.chat-history {
+  height: 400px;
+  overflow-y: auto;
+  padding: 10px;
+  background-color: #f9f9f9;
+}
+
+.chat-message {
+  display: flex;
+  margin-bottom: 15px;
+  animation: fadeIn 0.3s ease;
+}
+
+.chat-message.left {
+  flex-direction: row;
+}
+
+.chat-message.right {
+  flex-direction: row-reverse;
+}
+
+.message-content {
+  max-width: 70%;
+  padding: 10px 15px;
+  border-radius: 18px;
+  word-wrap: break-word;
+}
+
+.chat-message.left .message-content {
+  background-color: #e0e0e0;
+  border-bottom-left-radius: 5px;
+}
+
+.chat-message.right .message-content {
+  background-color: #409EFF;
+  color: white;
+  border-bottom-right-radius: 5px;
+}
+
+.message-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 10px;
+  font-size: 12px;
+}
+
+.chat-message.left .message-avatar {
+  background-color: #ccc;
+}
+
+.chat-message.right .message-avatar {
+  background-color: #409EFF;
+  color: white;
+}
+
+.message-text {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.message-time {
+  font-size: 12px;
+  color: #999;
+  margin-top: 5px;
+}
+
+.waiting-indicator, .running-indicator {
+  text-align: center;
+  padding: 20px;
+  color: #409EFF;
+  font-size: 14px;
+}
+
+.waiting-indicator i, .running-indicator i {
+  margin-right: 5px;
 }
 
 .browser-view-card {
@@ -265,6 +400,24 @@ export default {
   margin-bottom: 20px;
 }
 
+.download-link {
+  color: #409EFF;
+  text-decoration: none;
+}
+
+.download-link:hover {
+  text-decoration: underline;
+}
+
+.recording-gif {
+  max-width: 100%;
+  height: auto;
+}
+
+.input-card {
+  margin-bottom: 20px;
+}
+
 .button-row {
   margin-top: 10px;
   display: flex;
@@ -272,8 +425,14 @@ export default {
   gap: 10px;
 }
 
-.recording-gif {
-  max-width: 100%;
-  height: auto;
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>
