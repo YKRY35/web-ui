@@ -101,7 +101,7 @@
 
 <script>
 import FormItem from '@/components/common/FormItem.vue'
-import marked from 'marked'
+import { marked } from 'marked'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github.css'
 

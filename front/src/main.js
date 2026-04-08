@@ -5,7 +5,7 @@ import './plugins/element.js'
 import VueClipboard from 'vue-clipboard2'
 
 // 引入API和工具函数
-import * as api from './api'
+import api from './api'
 import storage from './utils/storage'
 
 // 注册全局属性

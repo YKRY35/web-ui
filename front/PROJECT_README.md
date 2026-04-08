@@ -92,7 +92,28 @@ npm run build
 
 ## 后端 API 配置
 
-后端 API 地址默认配置在 `src/utils/request.js` 中，默认为 `/api`。如果需要修改后端地址，请修改 `baseURL` 配置。
+### 环境变量配置（推荐）
+
+项目使用环境变量配置后端 API 地址。您可以通过修改以下文件来配置：
+
+#### 开发环境（.env.development）
+```bash
+VUE_APP_API_BASE_URL=http://127.0.0.1:7788
+```
+
+#### 生产环境（.env.production）
+```bash
+VUE_APP_API_BASE_URL=http://127.0.0.1:7788
+```
+
+### 临时修改（不推荐）
+
+如果需要临时修改后端地址，可以直接修改 `src/utils/request.js` 中的 `baseURL` 配置。
+
+### 支持的环境变量
+
+- `VUE_APP_API_BASE_URL` - API 基础地址（后端服务地址）
+  - 默认值：http://127.0.0.1:7788
 
 ## 注意事项
 
