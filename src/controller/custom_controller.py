@@ -1,22 +1,22 @@
 import pdb
-
 import pyperclip
 from typing import Optional, Type, Callable, Dict, Any, Union, Awaitable, TypeVar
 from pydantic import BaseModel
 from browser_use.agent.views import ActionResult
-from browser_use.browser.context import BrowserContext
-from browser_use.controller.service import Controller, DoneAction
-from browser_use.controller.registry.service import Registry, RegisteredAction
+from browser_use.controller import Controller as Tools
+from browser_use.tools.registry.views import RegisteredAction, ActionModel
+from browser_use.tools.registry.service import Registry
+from browser_use.browser.session import BrowserSession
 from main_content_extractor import MainContentExtractor
-from browser_use.controller.views import (
+from browser_use.tools.views import (
     ClickElementAction,
     DoneAction,
-    ExtractPageContentAction,
-    GoToUrlAction,
+    ExtractAction,
+    NavigateAction,
     InputTextAction,
-    OpenTabAction,
+    CloseTabAction,
     ScrollAction,
-    SearchGoogleAction,
+    SearchPageAction,
     SendKeysAction,
     SwitchTabAction,
 )
@@ -25,7 +25,6 @@ import inspect
 import asyncio
 import os
 from langchain_core.language_models.chat_models import BaseChatModel
-from browser_use.agent.views import ActionModel, ActionResult
 
 from src.utils.mcp_client import create_tool_param_model, setup_mcp_client_and_tools
 
@@ -36,11 +35,11 @@ logger = logging.getLogger(__name__)
 Context = TypeVar('Context')
 
 
-class CustomController(Controller):
+class CustomController(Tools):
     def __init__(self, exclude_actions: list[str] = [],
                  output_model: Optional[Type[BaseModel]] = None,
-                 ask_assistant_callback: Optional[Union[Callable[[str, BrowserContext], Dict[str, Any]], Callable[
-                     [str, BrowserContext], Awaitable[Dict[str, Any]]]]] = None,
+                 ask_assistant_callback: Optional[Union[Callable[[str, BrowserSession], Dict[str, Any]], Callable[
+                     [str, BrowserSession], Awaitable[Dict[str, Any]]]]] = None,
                  ):
         super().__init__(exclude_actions=exclude_actions, output_model=output_model)
         self._register_custom_actions()
@@ -57,7 +56,7 @@ class CustomController(Controller):
             "requiring subjective human judgment, needing a physical action performed, encountering complex CAPTCHAs, "
             "or facing limitations in your capabilities – you must request human assistance."
         )
-        async def ask_for_assistant(query: str, browser: BrowserContext):
+        async def ask_for_assistant(query: str, browser: BrowserSession):
             if self.ask_assistant_callback:
                 if inspect.iscoroutinefunction(self.ask_assistant_callback):
                     user_response = await self.ask_assistant_callback(query, browser)
@@ -73,7 +72,7 @@ class CustomController(Controller):
         @self.registry.action(
             'Upload file to interactive element with file path ',
         )
-        async def upload_file(index: int, path: str, browser: BrowserContext, available_file_paths: list[str]):
+        async def upload_file(index: int, path: str, browser: BrowserSession, available_file_paths: list[str]):
             if path not in available_file_paths:
                 return ActionResult(error=f'File path {path} is not available')
 
@@ -106,20 +105,58 @@ class CustomController(Controller):
                 logger.info(msg)
                 return ActionResult(error=msg)
 
-    @time_execution_sync('--act')
-    async def act(
+    async def setup_mcp_client(self, mcp_server_config: Optional[Dict[str, Any]] = None):
+        self.mcp_server_config = mcp_server_config
+        if self.mcp_server_config:
+            self.mcp_client = await setup_mcp_client_and_tools(self.mcp_server_config)
+            self.register_mcp_tools()
+
+    def register_mcp_tools(self):
+        """
+        Register the MCP tools used by this controller.
+        """
+        if self.mcp_client:
+            for server_name in self.mcp_client.server_name_to_tools:
+                for tool in self.mcp_client.server_name_to_tools[server_name]:
+                    tool_name = f"mcp.{server_name}.{tool.name}"
+                    self.registry.registry.actions[tool_name] = RegisteredAction(
+                        name=tool_name,
+                        description=tool.description,
+                        function=tool,
+                        param_model=create_tool_param_model(tool),
+                    )
+                    logger.info(f"Add mcp tool: {tool_name}")
+                logger.debug(
+                    f"Registered {len(self.mcp_client.server_name_to_tools[server_name])} mcp tools for {server_name}")
+        else:
+            logger.warning(f"MCP client not started.")
+
+    async def close_mcp_client(self):
+        if self.mcp_client:
+            await self.mcp_client.__aexit__(None, None, None)
+
+    def act(
             self,
             action: ActionModel,
-            browser_context: Optional[BrowserContext] = None,
-            #
+            browser_context: Optional[BrowserSession] = None,
             page_extraction_llm: Optional[BaseChatModel] = None,
             sensitive_data: Optional[Dict[str, str]] = None,
             available_file_paths: Optional[list[str]] = None,
-            #
+            context: Context | None = None,
+    ) -> ActionResult:
+        """Execute an action - synchronous wrapper for async act method"""
+        return asyncio.run(self._act_async(action, browser_context, page_extraction_llm, sensitive_data, available_file_paths, context))
+
+    async def _act_async(
+            self,
+            action: ActionModel,
+            browser_context: Optional[BrowserSession] = None,
+            page_extraction_llm: Optional[BaseChatModel] = None,
+            sensitive_data: Optional[Dict[str, str]] = None,
+            available_file_paths: Optional[list[str]] = None,
             context: Context | None = None,
     ) -> ActionResult:
         """Execute an action"""
-
         try:
             for action_name, params in action.model_dump(exclude_unset=True).items():
                 if params is not None:
@@ -150,33 +187,3 @@ class CustomController(Controller):
             return ActionResult()
         except Exception as e:
             raise e
-
-    async def setup_mcp_client(self, mcp_server_config: Optional[Dict[str, Any]] = None):
-        self.mcp_server_config = mcp_server_config
-        if self.mcp_server_config:
-            self.mcp_client = await setup_mcp_client_and_tools(self.mcp_server_config)
-            self.register_mcp_tools()
-
-    def register_mcp_tools(self):
-        """
-        Register the MCP tools used by this controller.
-        """
-        if self.mcp_client:
-            for server_name in self.mcp_client.server_name_to_tools:
-                for tool in self.mcp_client.server_name_to_tools[server_name]:
-                    tool_name = f"mcp.{server_name}.{tool.name}"
-                    self.registry.registry.actions[tool_name] = RegisteredAction(
-                        name=tool_name,
-                        description=tool.description,
-                        function=tool,
-                        param_model=create_tool_param_model(tool),
-                    )
-                    logger.info(f"Add mcp tool: {tool_name}")
-                logger.debug(
-                    f"Registered {len(self.mcp_client.server_name_to_tools[server_name])} mcp tools for {server_name}")
-        else:
-            logger.warning(f"MCP client not started.")
-
-    async def close_mcp_client(self):
-        if self.mcp_client:
-            await self.mcp_client.__aexit__(None, None, None)

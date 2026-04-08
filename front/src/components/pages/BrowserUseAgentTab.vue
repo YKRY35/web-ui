@@ -1,5 +1,52 @@
 <template>
   <div class="browser-use-agent-tab">
+    <!-- 信息面板区域 -->
+    <el-row :gutter="20" v-if="isRunning">
+      <el-col :span="8">
+        <el-card class="info-panel browser-panel">
+          <div slot="header" class="clearfix">
+            <span>Browser Information</span>
+          </div>
+          <div class="info-content">
+            <p v-if="browserInfo.browserType">{{ browserInfo.browserType }}</p>
+            <p v-if="browserInfo.browserStatus">{{ browserInfo.browserStatus }}</p>
+            <p v-if="browserInfo.connectionType">{{ browserInfo.connectionType }}</p>
+            <p v-if="browserInfo.windowSize">{{ browserInfo.windowSize }}</p>
+            <p v-if="browserInfo.currentUrl">{{ browserInfo.currentUrl }}</p>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="8">
+        <el-card class="info-panel model-panel">
+          <div slot="header" class="clearfix">
+            <span>Model Information</span>
+          </div>
+          <div class="info-content">
+            <p v-if="modelInfo.llmName">{{ modelInfo.llmName }}</p>
+            <p v-if="modelInfo.modelName">{{ modelInfo.modelName }}</p>
+            <p v-if="modelInfo.temperature">{{ modelInfo.temperature }}</p>
+            <p v-if="modelInfo.tokenUsage">{{ modelInfo.tokenUsage }}</p>
+            <p v-if="modelInfo.avgTokensPerStep">{{ modelInfo.avgTokensPerStep }}</p>
+            <p v-if="modelInfo.totalDuration">{{ modelInfo.totalDuration }}</p>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="8">
+        <el-card class="info-panel tasks-panel">
+          <div slot="header" class="clearfix">
+            <span>Task Information</span>
+          </div>
+          <div class="info-content">
+            <p v-if="taskInfo.currentTask">{{ taskInfo.currentTask }}</p>
+            <p v-if="taskInfo.currentStep">{{ taskInfo.currentStep }}</p>
+            <p v-if="taskInfo.stepStatus">{{ taskInfo.stepStatus }}</p>
+            <p v-if="taskInfo.goal">{{ taskInfo.goal }}</p>
+            <p v-if="taskInfo.lastError" class="error-text">{{ taskInfo.lastError }}</p>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <!-- 聊天历史记录 -->
     <el-card class="chat-card">
       <div slot="header" class="clearfix">
@@ -102,7 +149,30 @@ export default {
       isWaitingForHelp: false,
       showBrowserView: false,
       taskOutputs: false,
-      currentTaskId: null
+      currentTaskId: null,
+      // 信息面板数据
+      browserInfo: {
+        browserType: '',
+        browserStatus: '',
+        connectionType: '',
+        windowSize: '',
+        currentUrl: ''
+      },
+      modelInfo: {
+        llmName: '',
+        modelName: '',
+        temperature: '',
+        tokenUsage: '',
+        avgTokensPerStep: '',
+        totalDuration: ''
+      },
+      taskInfo: {
+        currentTask: '',
+        currentStep: '',
+        stepStatus: '',
+        goal: '',
+        lastError: ''
+      }
     }
   },
   methods: {
@@ -135,6 +205,11 @@ export default {
       this.isWaitingForHelp = false
       this.currentTaskId = Date.now().toString()
 
+      // 初始化信息面板
+      this.taskInfo.currentTask = task
+      this.taskInfo.currentStep = 'Step 1'
+      this.taskInfo.stepStatus = 'Initializing...'
+
       // 添加用户输入到聊天历史
       this.chatHistory.push({
         type: 'text',
@@ -157,6 +232,7 @@ export default {
       } catch (error) {
         console.error('Failed to run task:', error)
         this.isRunning = false
+        this.taskInfo.lastError = `Error: ${error.message}`
         this.chatHistory.push({
           type: 'text',
           content: `Error: ${error.message}`,
@@ -210,6 +286,29 @@ export default {
       this.showBrowserView = false
       this.taskOutputs = false
       this.currentTaskId = null
+      // 清除信息面板数据
+      this.browserInfo = {
+        browserType: '',
+        browserStatus: '',
+        connectionType: '',
+        windowSize: '',
+        currentUrl: ''
+      }
+      this.modelInfo = {
+        llmName: '',
+        modelName: '',
+        temperature: '',
+        tokenUsage: '',
+        avgTokensPerStep: '',
+        totalDuration: ''
+      }
+      this.taskInfo = {
+        currentTask: '',
+        currentStep: '',
+        stepStatus: '',
+        goal: '',
+        lastError: ''
+      }
     },
     // 处理用户帮助
     async handleUserHelp(response) {
@@ -252,6 +351,16 @@ export default {
                 this.recordingGif = status.recording_gif
               }
             }
+            // 更新信息面板
+            if (status.browser_info) {
+              this.updateBrowserInfo(status.browser_info)
+            }
+            if (status.model_info) {
+              this.updateModelInfo(status.model_info)
+            }
+            if (status.task_info) {
+              this.updateTaskInfo(status.task_info)
+            }
             // 检查任务是否完成
             if (!status.is_running) {
               this.isRunning = false
@@ -262,8 +371,41 @@ export default {
           }
         } catch (error) {
           console.error('Monitoring error:', error)
+          // 处理错误信息
+          this.taskInfo.lastError = `Monitoring error: ${error.message}`
         }
         await this.sleep(1000)
+      }
+    },
+    // 更新浏览器信息面板
+    updateBrowserInfo(info) {
+      this.browserInfo = {
+        browserType: info.browserType || '',
+        browserStatus: info.browserStatus || '',
+        connectionType: info.connectionType || '',
+        windowSize: info.windowSize || '',
+        currentUrl: info.currentUrl || ''
+      }
+    },
+    // 更新模型信息面板
+    updateModelInfo(info) {
+      this.modelInfo = {
+        llmName: info.llmName || '',
+        modelName: info.modelName || '',
+        temperature: info.temperature || '',
+        tokenUsage: info.tokenUsage || '',
+        avgTokensPerStep: info.avgTokensPerStep || '',
+        totalDuration: info.totalDuration || ''
+      }
+    },
+    // 更新任务信息面板
+    updateTaskInfo(info) {
+      this.taskInfo = {
+        currentTask: info.currentTask || '',
+        currentStep: info.currentStep || '',
+        stepStatus: info.stepStatus || '',
+        goal: info.goal || '',
+        lastError: info.lastError || ''
       }
     },
     // 更新聊天历史
@@ -297,6 +439,39 @@ export default {
 <style scoped>
 .browser-use-agent-tab {
   padding: 20px;
+}
+
+.info-panel {
+  margin-bottom: 20px;
+  border-radius: 4px;
+}
+
+.browser-panel {
+  border-top: 3px solid #409EFF;
+}
+
+.model-panel {
+  border-top: 3px solid #67C23A;
+}
+
+.tasks-panel {
+  border-top: 3px solid #E6A23C;
+}
+
+.info-content {
+  min-height: 120px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.info-content p {
+  margin: 8px 0;
+  word-wrap: break-word;
+}
+
+.error-text {
+  color: #F56C6C;
+  font-weight: 500;
 }
 
 .chat-card {

@@ -1,13 +1,18 @@
-from openai import OpenAI
-import pdb
-from langchain_openai import ChatOpenAI
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Literal,
+    Optional,
+    Union,
+    cast, List,
+)
 from langchain_core.globals import get_llm_cache
 from langchain_core.language_models.base import (
     BaseLanguageModel,
     LangSmithParams,
     LanguageModelInput,
 )
-import os
 from langchain_core.load import dumpd, dumps
 from langchain_core.messages import (
     AIMessage,
@@ -26,20 +31,9 @@ from langchain_core.outputs import (
     LLMResult,
     RunInfo,
 )
-from langchain_ollama import ChatOllama
 from langchain_core.output_parsers.base import OutputParserLike
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool
-
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Literal,
-    Optional,
-    Union,
-    cast, List,
-)
 from langchain_anthropic import ChatAnthropic
 from langchain_mistralai import ChatMistralAI
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -50,6 +44,69 @@ from langchain_aws import ChatBedrock
 from pydantic import SecretStr
 
 from src.utils import config
+
+
+# Import browser-use LLM factory for compatibility
+from browser_use.llm import get_llm as browser_use_get_llm
+
+
+def get_llm_model(provider: str, **kwargs):
+    """
+    Get LLM model using browser-use's LLM factory for compatibility.
+    This function maintains backward compatibility with existing code while
+    using browser-use's LLM management system.
+    """
+    try:
+  import os
+from src.utils import config
+
+# Import browser-use LLM classes for compatibility
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm import ChatOpenAI, ChatAnthropic, ChatGoogle, ChatOllama, ChatMistral
+
+
+def get_llm_model(provider: str, **kwargs):
+    """
+    Get LLM model using browser-use's LLM classes for compatibility.
+    This function maintains backward compatibility with existing code while
+    using browser-use's LLM management system.
+    """
+    model_name = kwargs.get('model_name', 'gpt-4o')
+    temperature = kwargs.get('temperature', 0.0)
+    base_url = kwargs.get('base_url')
+    api_key = kwargs.get('api_key')
+    num_ctx = kwargs.get('num_ctx')
+
+    kwargs = {
+        'model': model_name,
+        'temperature': temperature,
+    }
+
+    if base_url:
+        kwargs['base_url'] = base_url
+    if api_key:
+        kwargs['api_key'] = api_key
+    if num_ctx and provider == 'ollama':
+        kwargs['num_ctx'] = num_ctx
+
+    try:
+        if provider == 'openai':
+            return ChatOpenAI(**kwargs)
+        elif provider == 'anthropic':
+            return ChatAnthropic(**kwargs)
+        elif provider == 'google':
+            return ChatGoogle(**kwargs)
+        elif provider == 'ollama':
+            return ChatOllama(**kwargs)
+        elif provider == 'mistral':
+            return ChatMistral(**kwargs)
+        else:
+            # 默认使用 OpenAI
+            return ChatOpenAI(**kwargs)
+    except Exception as e:
+        logger.error(f"Error creating LLM for provider {provider}: {e}")
+        # Fallback to original implementation
+        return get_llm_model_fallback(provider, **kwargs)
 
 
 class DeepSeekR1ChatOpenAI(ChatOpenAI):
@@ -87,6 +144,13 @@ class DeepSeekR1ChatOpenAI(ChatOpenAI):
         content = response.choices[0].message.content
         return AIMessage(content=content, reasoning_content=reasoning_content)
 
+
+def get_llm_model_fallback(provider: str, **kwargs):
+    """
+    Fallback implementation of get_llm_model for backward compatibility.
+    This is the original implementation that can be used if browser-use LLM factory fails.
+    """
+
     def invoke(
             self,
             input: LanguageModelInput,
@@ -114,6 +178,13 @@ class DeepSeekR1ChatOpenAI(ChatOpenAI):
         return AIMessage(content=content, reasoning_content=reasoning_content)
 
 
+def get_llm_model_fallback(provider: str, **kwargs):
+    """
+    Fallback implementation of get_llm_model for backward compatibility.
+    This is the original implementation that can be used if browser-use LLM factory fails.
+    """
+
+
 class DeepSeekR1ChatOllama(ChatOllama):
 
     async def ainvoke(
@@ -132,6 +203,13 @@ class DeepSeekR1ChatOllama(ChatOllama):
             content = content.split("**JSON Response:**")[-1]
         return AIMessage(content=content, reasoning_content=reasoning_content)
 
+
+def get_llm_model_fallback(provider: str, **kwargs):
+    """
+    Fallback implementation of get_llm_model for backward compatibility.
+    This is the original implementation that can be used if browser-use LLM factory fails.
+    """
+
     def invoke(
             self,
             input: LanguageModelInput,
@@ -147,6 +225,13 @@ class DeepSeekR1ChatOllama(ChatOllama):
         if "**JSON Response:**" in content:
             content = content.split("**JSON Response:**")[-1]
         return AIMessage(content=content, reasoning_content=reasoning_content)
+
+
+def get_llm_model_fallback(provider: str, **kwargs):
+    """
+    Fallback implementation of get_llm_model for backward compatibility.
+    This is the original implementation that can be used if browser-use LLM factory fails.
+    """
 
 
 def get_llm_model(provider: str, **kwargs):
@@ -353,3 +438,12 @@ def get_llm_model(provider: str, **kwargs):
         )
     else:
         raise ValueError(f"Unsupported provider: {provider}")
+
+
+def get_llm_model_fallback(provider: str, **kwargs):
+    """
+    Fallback implementation of get_llm_model for backward compatibility.
+    This is the original implementation that can be used if browser-use LLM factory fails.
+    """
+    from llm_provider_fallback import get_llm_model_fallback as fallback
+    return fallback(provider, **kwargs)

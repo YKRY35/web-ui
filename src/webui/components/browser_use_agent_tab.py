@@ -7,22 +7,20 @@ from typing import Any, AsyncGenerator, Dict, Optional
 
 import gradio as gr
 
-# from browser_use.agent.service import Agent
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm import ChatOpenAI, ChatAnthropic, ChatGoogle, ChatOllama, ChatMistral
 from browser_use.agent.views import (
     AgentHistoryList,
     AgentOutput,
 )
-from browser_use.browser.browser import BrowserConfig
-from browser_use.browser.context import BrowserContext, BrowserContextConfig
-from browser_use.browser.views import BrowserState
+from browser_use.browser.profile import BrowserProfile
+from browser_use.browser.session import BrowserSession
+from browser_use.controller import Controller as BrowserUseController
 from gradio.components import Component
-from langchain_core.language_models.chat_models import BaseChatModel
-
-from src.agent.browser_use.browser_use_agent import BrowserUseAgent
-from src.browser.custom_browser import CustomBrowser
-from src.controller.custom_controller import CustomController
-from src.utils import llm_provider
 from src.webui.webui_manager import WebuiManager
+
+# 导入兼容性模块
+from src.webui.browser_use_compat import BrowserState
 
 logger = logging.getLogger(__name__)
 
@@ -38,26 +36,42 @@ async def _initialize_llm(
         api_key: Optional[str],
         num_ctx: Optional[int] = None,
 ) -> Optional[BaseChatModel]:
-    """Initializes the LLM based on settings. Returns None if provider/model is missing."""
+    """Initializes the LLM based on settings using browser-use's LLM classes."""
     if not provider or not model_name:
         logger.info("LLM Provider or Model Name not specified, LLM will be None.")
         return None
+
     try:
-        # Use your actual LLM provider logic here
         logger.info(
             f"Initializing LLM: Provider={provider}, Model={model_name}, Temp={temperature}"
         )
-        # Example using a placeholder function
-        llm = llm_provider.get_llm_model(
-            provider=provider,
-            model_name=model_name,
-            temperature=temperature,
-            base_url=base_url or None,
-            api_key=api_key or None,
-            # Add other relevant params like num_ctx for ollama
-            num_ctx=num_ctx if provider == "ollama" else None,
-        )
-        return llm
+
+        kwargs = {
+            'model': model_name,
+            'temperature': temperature,
+        }
+
+        if base_url:
+            kwargs['base_url'] = base_url
+        if api_key:
+            kwargs['api_key'] = api_key
+        if num_ctx and provider == 'ollama':
+            kwargs['num_ctx'] = num_ctx
+
+        if provider == 'openai':
+            return ChatOpenAI(**kwargs)
+        elif provider == 'anthropic':
+            return ChatAnthropic(**kwargs)
+        elif provider == 'google':
+            return ChatGoogle(**kwargs)
+        elif provider == 'ollama':
+            return ChatOllama(**kwargs)
+        elif provider == 'mistral':
+            return ChatMistral(**kwargs)
+        else:
+            # 默认使用 OpenAI
+            return ChatOpenAI(**kwargs)
+
     except Exception as e:
         logger.error(f"Failed to initialize LLM: {e}", exc_info=True)
         gr.Warning(
@@ -222,7 +236,7 @@ def _handle_done(webui_manager: WebuiManager, history: AgentHistoryList):
 
 
 async def _ask_assistant_callback(
-        webui_manager: WebuiManager, query: str, browser_context: BrowserContext
+        webui_manager: WebuiManager, query: str, session: BrowserSession
 ) -> Dict[str, Any]:
     """Callback triggered by the agent's ask_for_assistant action."""
     logger.info("Agent requires assistance. Waiting for user input.")
@@ -422,12 +436,12 @@ async def run_agent_task(
 
     # Pass the webui_manager instance to the callback when wrapping it
     async def ask_callback_wrapper(
-            query: str, browser_context: BrowserContext
+            query: str, session: BrowserSession
     ) -> Dict[str, Any]:
         return await _ask_assistant_callback(webui_manager, query, browser_context)
 
     if not webui_manager.bu_controller:
-        webui_manager.bu_controller = CustomController(
+        webui_manager.bu_controller = BrowserUseTools(
             ask_assistant_callback=ask_callback_wrapper
         )
         await webui_manager.bu_controller.setup_mcp_client(mcp_server_config)
@@ -440,12 +454,13 @@ async def run_agent_task(
         if not keep_browser_open:
             if webui_manager.bu_browser_context:
                 logger.info("Closing previous browser context.")
-                await webui_manager.bu_browser_context.close()
-                webui_manager.bu_browser_context = None
-            if webui_manager.bu_browser:
-                logger.info("Closing previous browser.")
-                await webui_manager.bu_browser.close()
-                webui_manager.bu_browser = None
+                if webui_manager.bu_browser_session:
+                    await webui_manager.bu_browser_session.close()
+                    webui_manager.bu_browser_session = None
+                if webui_manager.bu_browser:
+                    logger.info("Closing previous browser.")
+                    await webui_manager.bu_browser.close()
+                    webui_manager.bu_browser = None
 
         # Create Browser if needed
         if not webui_manager.bu_browser:
@@ -469,10 +484,8 @@ async def run_agent_task(
                     extra_browser_args=extra_args,
                     wss_url=wss_url,
                     cdp_url=cdp_url,
-                    new_context_config=BrowserContextConfig(
-                        window_width=window_w,
-                        window_height=window_h,
-                    )
+                    window_width=window_w,
+                    window_height=window_h,
                 )
             )
 
@@ -490,7 +503,7 @@ async def run_agent_task(
             )
             if not webui_manager.bu_browser:
                 raise ValueError("Browser not initialized, cannot create context.")
-            webui_manager.bu_browser_context = (
+            webui_manager.bu_browser_session = (
                 await webui_manager.bu_browser.new_context(config=context_config)
             )
 
@@ -522,15 +535,15 @@ async def run_agent_task(
 
         if not webui_manager.bu_agent:
             logger.info(f"Initializing new agent for task: {task}")
-            if not webui_manager.bu_browser or not webui_manager.bu_browser_context:
+            if not webui_manager.bu_browser or not webui_manager.bu_browser_session:
                 raise ValueError(
-                    "Browser or Context not initialized, cannot create agent."
+                    "Browser or BrowserSession not initialized, cannot create agent."
                 )
-            webui_manager.bu_agent = BrowserUseAgent(
+            webui_manager.bu_agent = Agent(
                 task=task,
                 llm=main_llm,
                 browser=webui_manager.bu_browser,
-                browser_context=webui_manager.bu_browser_context,
+                browser_session=webui_manager.bu_browser_session,
                 controller=webui_manager.bu_controller,
                 register_new_step_callback=step_callback_wrapper,
                 register_done_callback=done_callback_wrapper,
@@ -548,10 +561,9 @@ async def run_agent_task(
             webui_manager.bu_agent.settings.generate_gif = gif_path
         else:
             webui_manager.bu_agent.state.agent_id = webui_manager.bu_agent_task_id
-            webui_manager.bu_agent.add_new_task(task)
             webui_manager.bu_agent.settings.generate_gif = gif_path
             webui_manager.bu_agent.browser = webui_manager.bu_browser
-            webui_manager.bu_agent.browser_context = webui_manager.bu_browser_context
+            webui_manager.bu_agent.browser_session = webui_manager.bu_browser_session
             webui_manager.bu_agent.controller = webui_manager.bu_controller
 
         # --- 6. Run Agent Task and Stream Updates ---
@@ -744,8 +756,8 @@ async def run_agent_task(
             if should_close_browser_on_finish:
                 if webui_manager.bu_browser_context:
                     logger.info("Closing browser context after task.")
-                    await webui_manager.bu_browser_context.close()
-                    webui_manager.bu_browser_context = None
+                    await webui_manager.bu_browser_session.close()
+                    webui_manager.bu_browser_session = None
                 if webui_manager.bu_browser:
                     logger.info("Closing browser after task.")
                     await webui_manager.bu_browser.close()
@@ -921,9 +933,12 @@ async def handle_clear(webui_manager: WebuiManager):
             logger.warning(f"Error stopping task on clear: {e}")
     webui_manager.bu_current_task = None
 
-    if webui_manager.bu_controller:
-        await webui_manager.bu_controller.close_mcp_client()
-        webui_manager.bu_controller = None
+    if webui_manager.bu_browser_session:
+        await webui_manager.bu_browser_session.close()
+        webui_manager.bu_browser_session = None
+    if webui_manager.bu_browser:
+        await webui_manager.bu_browser.close()
+        webui_manager.bu_browser = None
     webui_manager.bu_agent = None
 
     # Reset state stored in manager

@@ -65,7 +65,6 @@ export default {
     },
 
     async handleLoadConfig() {
-      debugger
       if (!this.selectedFile) {
         this.$message.warning('Please select a config file first')
         return

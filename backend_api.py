@@ -273,7 +273,18 @@ class BrowserUseAgentRequest(BaseModel):
 async def run_agent(data: BrowserUseAgentRequest):
     """运行代理"""
     try:
-        task_id = datetime.now().strftime("%Y%m%d%H%M%S")
+        # 获取当前配置
+        agent_settings = await get_agent_settings()
+        browser_settings = await get_browser_settings()
+
+        config = {
+            "agentSettings": agent_settings.get("settings", {}),
+            "browserSettings": browser_settings.get("settings", {})
+        }
+
+        # 运行代理任务
+        task_id = await webui_manager.run_browser_use_agent(data.task, config)
+
         return {
             "success": True,
             "task_id": task_id,
@@ -289,6 +300,7 @@ async def run_agent(data: BrowserUseAgentRequest):
 async def stop_agent(task_id: str = Form(...)):
     """停止代理"""
     try:
+        await webui_manager.stop_browser_use_agent()
         return {
             "success": True,
             "message": "Agent stopped successfully"
@@ -303,6 +315,7 @@ async def stop_agent(task_id: str = Form(...)):
 async def pause_agent(task_id: str = Form(...)):
     """暂停代理"""
     try:
+        await webui_manager.pause_browser_use_agent()
         return {
             "success": True,
             "message": "Agent paused"
@@ -317,6 +330,7 @@ async def pause_agent(task_id: str = Form(...)):
 async def resume_agent(task_id: str = Form(...)):
     """恢复代理"""
     try:
+        await webui_manager.resume_browser_use_agent()
         return {
             "success": True,
             "message": "Agent resumed"
@@ -331,15 +345,8 @@ async def resume_agent(task_id: str = Form(...)):
 async def get_agent_status(task_id: str):
     """获取代理状态"""
     try:
-        return {
-            "success": True,
-            "task_id": task_id,
-            "status": "running",
-            "chat_history": [],
-            "browser_view": "",
-            "is_waiting_for_help": False,
-            "task_outputs": False
-        }
+        status = await webui_manager.get_browser_use_agent_status(task_id)
+        return status
     except Exception as e:
         return {
             "success": False,

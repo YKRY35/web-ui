@@ -1,54 +1,56 @@
 import json
 from collections.abc import Generator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Dict, List, Any
 import os
 import gradio as gr
 from datetime import datetime
-from typing import Optional, Dict, List
 import uuid
 import asyncio
 import time
 
-from gradio.components import Component
-from browser_use.browser.browser import Browser
-from browser_use.browser.context import BrowserContext
 from browser_use.agent.service import Agent
-from src.browser.custom_browser import CustomBrowser
-from src.browser.custom_context import CustomBrowserContext
+from browser_use.browser.session import BrowserSession
+from browser_use.controller import Controller as BrowserUseController
 from src.controller.custom_controller import CustomController
-from src.agent.deep_research.deep_research_agent import DeepResearchAgent
+
+# 导入兼容性模块
+from src.webui.browser_use_compat import BrowserState, AgentHistoryList, AgentOutput
 
 
 class WebuiManager:
     def __init__(self, settings_save_dir: str = "./tmp/webui_settings"):
-        self.id_to_component: dict[str, Component] = {}
-        self.component_to_id: dict[Component, str] = {}
+        self.id_to_component: dict[str, "Component"] = {}
+        self.component_to_id: dict["Component", str] = {}
 
         self.settings_save_dir = settings_save_dir
         os.makedirs(self.settings_save_dir, exist_ok=True)
 
+        # 初始化代理和浏览器
+        self.init_browser_use_agent()
+        self.init_deep_research_agent()
+
     def init_browser_use_agent(self) -> None:
         """
-        init browser use agent
+        init browser use agent using browser-use library
         """
         self.bu_agent: Optional[Agent] = None
-        self.bu_browser: Optional[CustomBrowser] = None
-        self.bu_browser_context: Optional[CustomBrowserContext] = None
-        self.bu_controller: Optional[CustomController] = None
+        self.bu_browser_session: Optional[BrowserSession] = None
+        self.bu_controller: Optional[BrowserUseController] = None
         self.bu_chat_history: List[Dict[str, Optional[str]]] = []
         self.bu_response_event: Optional[asyncio.Event] = None
         self.bu_user_help_response: Optional[str] = None
         self.bu_current_task: Optional[asyncio.Task] = None
         self.bu_agent_task_id: Optional[str] = None
+        self.bu_is_running: bool = False
+        self.bu_is_paused: bool = False
+        self.bu_is_waiting_for_help: bool = False
 
     def init_deep_research_agent(self) -> None:
         """
         init deep research agent
         """
-        self.dr_agent: Optional[DeepResearchAgent] = None
-        self.dr_current_task = None
-        self.dr_agent_task_id: Optional[str] = None
-        self.dr_save_dir: Optional[str] = None
+        # 暂时移除 DeepResearchAgent 支持，后续可添加
+        pass
 
     def add_components(self, tab_name: str, components_dict: dict[str, "Component"]) -> None:
         """
@@ -120,3 +122,168 @@ class WebuiManager:
             }
         )
         yield update_components
+
+    async def run_browser_use_agent(self, task: str, config: dict) -> str:
+        """
+        运行浏览器使用代理 (使用 browser-use)
+        """
+        self.bu_agent_task_id = str(uuid.uuid4())
+        self.bu_is_running = True
+        self.bu_is_paused = False
+        self.bu_is_waiting_for_help = False
+        self.bu_chat_history = []
+
+        try:
+            # 初始化浏览器和控制器
+            if self.bu_browser_session is None:
+                self.bu_browser_session = BrowserSession()
+
+            if self.bu_controller is None:
+                self.bu_controller = BrowserUseController()
+
+            # 初始化 Agent
+            if self.bu_agent is None:
+                # 根据配置获取LLM
+                llm_config = config.get('agentSettings', {})
+                llm = self._create_llm_from_config(llm_config)
+
+                self.bu_agent = Agent(
+                    task=task,
+                    llm=llm,
+                    browser_session=self.bu_browser_session,
+                    controller=self.bu_controller,
+                    **llm_config
+                )
+
+            # 运行代理任务
+            self.bu_current_task = asyncio.create_task(self._run_agent_task(task))
+            return self.bu_agent_task_id
+
+        except Exception as e:
+            self.bu_is_running = False
+            raise e
+
+    def _create_llm_from_config(self, config: dict):
+        """根据配置创建 LLM 实例"""
+        provider = config.get('llm_provider', 'openai')
+        model_name = config.get('model_name', 'gpt-4o')
+        temperature = config.get('temperature', 0.0)
+        base_url = config.get('base_url')
+        api_key = config.get('api_key')
+        num_ctx = config.get('num_ctx')
+
+        kwargs = {
+            'model': model_name,
+            'temperature': temperature,
+        }
+
+        if base_url:
+            kwargs['base_url'] = base_url
+        if api_key:
+            kwargs['api_key'] = api_key
+        if num_ctx and provider == 'ollama':
+            kwargs['num_ctx'] = num_ctx
+
+        if provider == 'openai':
+            from browser_use.llm import ChatOpenAI
+            return ChatOpenAI(**kwargs)
+        elif provider == 'anthropic':
+            from browser_use.llm import ChatAnthropic
+            return ChatAnthropic(**kwargs)
+        elif provider == 'google':
+            from browser_use.llm import ChatGoogle
+            return ChatGoogle(**kwargs)
+        elif provider == 'ollama':
+            from browser_use.llm import ChatOllama
+            return ChatOllama(**kwargs)
+        elif provider == 'mistral':
+            from browser_use.llm import ChatMistral
+            return ChatMistral(**kwargs)
+        else:
+            # 默认使用 OpenAI
+            from browser_use.llm import ChatOpenAI
+            return ChatOpenAI(**kwargs)
+
+    async def _run_agent_task(self, task: str):
+        """
+        内部代理任务执行方法 (使用 browser-use)
+        """
+        try:
+            await self.bu_agent.run(max_steps=100)  # 使用 browser-use 的 run 方法
+        except Exception as e:
+            print(f"Agent run error: {e}")
+        finally:
+            self.bu_is_running = False
+            self.bu_current_task = None
+
+    async def stop_browser_use_agent(self) -> None:
+        """
+        停止浏览器使用代理 (使用 browser-use)
+        """
+        if self.bu_agent and self.bu_is_running:
+            self.bu_agent.stop()  # 使用 browser-use 的 stop 方法
+
+        if self.bu_current_task and not self.bu_current_task.done():
+            self.bu_current_task.cancel()
+
+        self.bu_is_running = False
+        self.bu_current_task = None
+
+    async def pause_browser_use_agent(self) -> None:
+        """
+        暂停浏览器使用代理 (使用 browser-use)
+        """
+        if self.bu_agent and self.bu_is_running:
+            self.bu_agent.pause()  # 使用 browser-use 的 pause 方法
+            self.bu_is_paused = True
+
+    async def resume_browser_use_agent(self) -> None:
+        """
+        恢复浏览器使用代理 (使用 browser-use)
+        """
+        if self.bu_agent and self.bu_is_paused:
+            self.bu_agent.resume()  # 使用 browser-use 的 resume 方法
+            self.bu_is_paused = False
+
+    async def get_browser_use_agent_status(self, task_id: str) -> dict:
+        """
+        获取浏览器使用代理状态
+        """
+        if self.bu_agent_task_id != task_id:
+            return {
+                "success": False,
+                "message": "Invalid task_id"
+            }
+
+        status = {
+            "success": True,
+            "task_id": task_id,
+            "status": "running" if self.bu_is_running else "completed",
+            "is_paused": self.bu_is_paused,
+            "is_waiting_for_help": self.bu_is_waiting_for_help,
+            "chat_history": self.bu_chat_history,
+            "browser_view": "",
+            "task_outputs": False
+        }
+
+        # 如果代理有状态信息，添加到响应中
+        if self.bu_agent:
+            # 获取聊天历史
+            if hasattr(self.bu_agent, "_message_manager") and self.bu_agent._message_manager:
+                pass  # 可以在这里添加获取聊天历史的逻辑
+
+            # 获取浏览器视图
+            if hasattr(self.bu_browser_session, "get_state"):
+                pass  # 可以在这里添加获取浏览器视图的逻辑
+
+        return status
+
+    async def respond_to_browser_use_agent(self, task_id: str, message: str) -> None:
+        """
+        响应浏览器使用代理的帮助请求
+        """
+        if self.bu_agent_task_id == task_id and self.bu_is_waiting_for_help:
+            self.bu_user_help_response = message
+            if self.bu_response_event:
+                self.bu_response_event.set()
+
