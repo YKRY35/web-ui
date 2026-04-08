@@ -4,7 +4,7 @@
       <FormGroup title="System Prompt">
         <FormItem label="Override System Prompt">
           <el-input
-            v-model="settings.override_system_prompt"
+            v-model="settings.overrideSystemPrompt"
             type="textarea"
             :rows="4"
             placeholder="Override the system prompt"
@@ -12,7 +12,7 @@
         </FormItem>
         <FormItem label="Extend System Prompt">
           <el-input
-            v-model="settings.extend_system_prompt"
+            v-model="settings.extendSystemPrompt"
             type="textarea"
             :rows="4"
             placeholder="Extend the system prompt"
@@ -33,7 +33,7 @@
         </FormItem>
         <FormItem v-if="showMcpConfig" label="MCP Server Config">
           <el-input
-            v-model="settings.mcp_server_config"
+            v-model="settings.mcpServerConfig"
             type="textarea"
             :rows="6"
             readonly
@@ -45,7 +45,7 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <FormItem label="LLM Provider">
-              <el-select v-model="settings.llm_provider" @change="handleProviderChange">
+              <el-select v-model="settings.llmProvider" @change="handleProviderChange">
                 <el-option
                   v-for="provider in llmProviders"
                   :key="provider"
@@ -57,7 +57,7 @@
           </el-col>
           <el-col :span="12">
             <FormItem label="LLM Model Name">
-              <el-select v-model="settings.llm_model_name" filterable allow-create>
+              <el-select v-model="settings.llmModelName" filterable allow-create>
                 <el-option
                   v-for="model in llmModels"
                   :key="model"
@@ -72,7 +72,7 @@
           <el-col :span="12">
             <FormItem label="LLM Temperature">
               <el-slider
-                v-model="settings.llm_temperature"
+                v-model="settings.llmTemperature"
                 :min="0"
                 :max="2"
                 :step="0.1"
@@ -82,13 +82,13 @@
           </el-col>
           <el-col :span="12">
             <FormItem label="Use Vision">
-              <el-switch v-model="settings.use_vision"></el-switch>
+              <el-switch v-model="settings.useVision"></el-switch>
             </FormItem>
           </el-col>
         </el-row>
-        <FormItem v-if="settings.llm_provider === 'ollama'" label="Ollama Context Length">
+        <FormItem v-if="settings.llmProvider === 'ollama'" label="Ollama Context Length">
           <el-slider
-            v-model="settings.ollama_num_ctx"
+            v-model="settings.ollamaNumCtx"
             :min="256"
             :max="65536"
             :step="1"
@@ -99,7 +99,7 @@
           <el-col :span="12">
             <FormItem label="Base URL">
               <el-input
-                v-model="settings.llm_base_url"
+                v-model="settings.llmBaseUrl"
                 placeholder="API endpoint URL (if required)"
               ></el-input>
             </FormItem>
@@ -107,7 +107,7 @@
           <el-col :span="12">
             <FormItem label="API Key">
               <el-input
-                v-model="settings.llm_api_key"
+                v-model="settings.llmApiKey"
                 type="password"
                 placeholder="Your API key (leave blank to use .env)"
               ></el-input>
@@ -120,7 +120,7 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <FormItem label="Planner LLM Provider">
-              <el-select v-model="settings.planner_llm_provider" @change="handlePlannerProviderChange" clearable>
+              <el-select v-model="settings.plannerLlmProvider" @change="handlePlannerProviderChange" clearable>
                 <el-option
                   v-for="provider in llmProviders"
                   :key="provider"
@@ -132,7 +132,7 @@
           </el-col>
           <el-col :span="12">
             <FormItem label="Planner LLM Model Name">
-              <el-select v-model="settings.planner_llm_model_name" filterable allow-create clearable>
+              <el-select v-model="settings.plannerLlmModelName" filterable allow-create clearable>
                 <el-option
                   v-for="model in plannerModels"
                   :key="model"
@@ -147,7 +147,7 @@
           <el-col :span="12">
             <FormItem label="Planner LLM Temperature">
               <el-slider
-                v-model="settings.planner_llm_temperature"
+                v-model="settings.plannerLlmTemperature"
                 :min="0"
                 :max="2"
                 :step="0.1"
@@ -157,13 +157,13 @@
           </el-col>
           <el-col :span="12">
             <FormItem label="Use Vision(Planner LLM)">
-              <el-switch v-model="settings.planner_use_vision"></el-switch>
+              <el-switch v-model="settings.plannerUseVision"></el-switch>
             </FormItem>
           </el-col>
         </el-row>
-        <FormItem v-if="settings.planner_llm_provider === 'ollama'" label="Ollama Context Length">
+        <FormItem v-if="settings.plannerLlmProvider === 'ollama'" label="Ollama Context Length">
           <el-slider
-            v-model="settings.planner_ollama_num_ctx"
+            v-model="settings.plannerOllamaNumCtx"
             :min="256"
             :max="65536"
             :step="1"
@@ -174,7 +174,7 @@
           <el-col :span="12">
             <FormItem label="Base URL">
               <el-input
-                v-model="settings.planner_llm_base_url"
+                v-model="settings.plannerLlmBaseUrl"
                 placeholder="API endpoint URL (if required)"
               ></el-input>
             </FormItem>
@@ -182,7 +182,7 @@
           <el-col :span="12">
             <FormItem label="API Key">
               <el-input
-                v-model="settings.planner_llm_api_key"
+                v-model="settings.plannerLlmApiKey"
                 type="password"
                 placeholder="Your API key (leave blank to use .env)"
               ></el-input>
@@ -196,7 +196,7 @@
           <el-col :span="12">
             <FormItem label="Max Run Steps">
               <el-slider
-                v-model="settings.max_steps"
+                v-model="settings.maxSteps"
                 :min="1"
                 :max="1000"
                 :step="1"
@@ -207,7 +207,7 @@
           <el-col :span="12">
             <FormItem label="Max Number of Actions">
               <el-slider
-                v-model="settings.max_actions"
+                v-model="settings.maxActions"
                 :min="1"
                 :max="100"
                 :step="1"
@@ -220,7 +220,7 @@
           <el-col :span="12">
             <FormItem label="Max Input Tokens">
               <el-input-number
-                v-model="settings.max_input_tokens"
+                v-model="settings.maxInputTokens"
                 :min="1"
                 :step="1"
                 :precision="0"
@@ -230,7 +230,7 @@
           </el-col>
           <el-col :span="12">
             <FormItem label="Tool Calling Method">
-              <el-select v-model="settings.tool_calling_method" filterable allow-create>
+              <el-select v-model="settings.toolCallingMethod" filterable allow-create>
                 <el-option label="function_calling" value="function_calling"></el-option>
                 <el-option label="json_mode" value="json_mode"></el-option>
                 <el-option label="raw" value="raw"></el-option>
@@ -249,6 +249,7 @@
 <script>
 import FormGroup from '@/components/common/FormGroup.vue'
 import FormItem from '@/components/common/FormItem.vue'
+import { transformGradioConfig, mergeWithDefaults, getConfigValue } from '@/utils/configHelper'
 
 export default {
   name: 'AgentSettingsTab',
@@ -265,27 +266,27 @@ export default {
   data() {
     return {
       settings: {
-        override_system_prompt: '',
-        extend_system_prompt: '',
-        llm_provider: 'openai',
-        llm_model_name: '',
-        llm_temperature: 0.6,
-        use_vision: true,
-        ollama_num_ctx: 16000,
-        llm_base_url: '',
-        llm_api_key: '',
-        planner_llm_provider: '',
-        planner_llm_model_name: '',
-        planner_llm_temperature: 0.6,
-        planner_use_vision: false,
-        planner_ollama_num_ctx: 16000,
-        planner_llm_base_url: '',
-        planner_llm_api_key: '',
-        max_steps: 100,
-        max_actions: 10,
-        max_input_tokens: 128000,
-        tool_calling_method: 'auto',
-        mcp_server_config: ''
+        overrideSystemPrompt: '',
+        extendSystemPrompt: '',
+        llmProvider: 'openai',
+        llmModelName: '',
+        llmTemperature: 0.6,
+        useVision: true,
+        ollamaNumCtx: 16000,
+        llmBaseUrl: '',
+        llmApiKey: '',
+        plannerLlmProvider: '',
+        plannerLlmModelName: '',
+        plannerLlmTemperature: 0.6,
+        plannerUseVision: false,
+        plannerOllamaNumCtx: 16000,
+        plannerLlmBaseUrl: '',
+        plannerLlmApiKey: '',
+        maxSteps: 100,
+        maxActions: 10,
+        maxInputTokens: 128000,
+        toolCallingMethod: 'auto',
+        mcpServerConfig: ''
       },
       showMcpConfig: false,
       llmProviders: ['openai', 'ollama', 'mistral'],
@@ -311,15 +312,15 @@ export default {
   methods: {
     handleProviderChange(provider) {
       this.llmModels = this.getModelsForProvider(provider)
-      this.settings.llm_model_name = this.llmModels[0] || ''
+      this.settings.llmModelName = this.llmModels[0] || ''
     },
     handlePlannerProviderChange(provider) {
       if (provider) {
         this.plannerModels = this.getModelsForProvider(provider)
-        this.settings.planner_llm_model_name = this.plannerModels[0] || ''
+        this.settings.plannerLlmModelName = this.plannerModels[0] || ''
       } else {
         this.plannerModels = []
-        this.settings.planner_llm_model_name = ''
+        this.settings.plannerLlmModelName = ''
       }
     },
     getModelsForProvider(provider) {
@@ -335,7 +336,7 @@ export default {
         const reader = new FileReader()
         reader.onload = (e) => {
           try {
-            this.settings.mcp_server_config = JSON.stringify(JSON.parse(e.target.result), null, 2)
+            this.settings.mcpServerConfig = JSON.stringify(JSON.parse(e.target.result), null, 2)
             this.showMcpConfig = true
           } catch (error) {
             this.$message.error('Invalid JSON file')

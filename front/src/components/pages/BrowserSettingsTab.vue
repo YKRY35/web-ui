@@ -6,7 +6,7 @@
           <el-col :span="12">
             <FormItem label="Browser Binary Path">
               <el-input
-                v-model="settings.browser_binary_path"
+                v-model="settings.browserBinaryPath"
                 placeholder="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
               ></el-input>
             </FormItem>
@@ -14,7 +14,7 @@
           <el-col :span="12">
             <FormItem label="Browser User Data Dir">
               <el-input
-                v-model="settings.browser_user_data_dir"
+                v-model="settings.browserUserDataDir"
                 placeholder="Leave empty for default"
               ></el-input>
             </FormItem>
@@ -23,12 +23,12 @@
         <el-row :gutter="20">
           <el-col :span="6">
             <FormItem label="Use Own Browser">
-              <el-switch v-model="settings.use_own_browser"></el-switch>
+              <el-switch v-model="settings.useOwnBrowser"></el-switch>
             </FormItem>
           </el-col>
           <el-col :span="6">
             <FormItem label="Keep Browser Open">
-              <el-switch v-model="settings.keep_browser_open"></el-switch>
+              <el-switch v-model="settings.keepBrowserOpen"></el-switch>
             </FormItem>
           </el-col>
           <el-col :span="6">
@@ -38,7 +38,7 @@
           </el-col>
           <el-col :span="6">
             <FormItem label="Disable Security">
-              <el-switch v-model="settings.disable_security"></el-switch>
+              <el-switch v-model="settings.disableSecurity"></el-switch>
             </FormItem>
           </el-col>
         </el-row>
@@ -46,7 +46,7 @@
           <el-col :span="12">
             <FormItem label="Window Width">
               <el-input-number
-                v-model="settings.window_w"
+                v-model="settings.windowWidth"
                 :min="800"
                 :max="2560"
                 style="width: 100%"
@@ -56,7 +56,7 @@
           <el-col :span="12">
             <FormItem label="Window Height">
               <el-input-number
-                v-model="settings.window_h"
+                v-model="settings.windowHeight"
                 :min="600"
                 :max="1440"
                 style="width: 100%"
@@ -71,7 +71,7 @@
           <el-col :span="12">
             <FormItem label="CDP URL">
               <el-input
-                v-model="settings.cdp_url"
+                v-model="settings.cdpUrl"
                 placeholder="http://localhost:9222"
               ></el-input>
             </FormItem>
@@ -79,7 +79,7 @@
           <el-col :span="12">
             <FormItem label="WSS URL">
               <el-input
-                v-model="settings.wss_url"
+                v-model="settings.wssUrl"
                 placeholder="wss://chrome-devtools..."
               ></el-input>
             </FormItem>
@@ -92,7 +92,7 @@
           <el-col :span="12">
             <FormItem label="Recording Path">
               <el-input
-                v-model="settings.save_recording_path"
+                v-model="settings.saveRecordingPath"
                 placeholder="./tmp/record_videos"
               ></el-input>
             </FormItem>
@@ -100,7 +100,7 @@
           <el-col :span="12">
             <FormItem label="Trace Path">
               <el-input
-                v-model="settings.save_trace_path"
+                v-model="settings.saveTracePath"
                 placeholder="./tmp/traces"
               ></el-input>
             </FormItem>
@@ -110,7 +110,7 @@
           <el-col :span="12">
             <FormItem label="Agent History Save Path">
               <el-input
-                v-model="settings.save_agent_history_path"
+                v-model="settings.saveAgentHistoryPath"
                 placeholder="./tmp/agent_history"
               ></el-input>
             </FormItem>
@@ -118,7 +118,7 @@
           <el-col :span="12">
             <FormItem label="Download Path">
               <el-input
-                v-model="settings.save_download_path"
+                v-model="settings.saveDownloadPath"
                 placeholder="./tmp/downloads"
               ></el-input>
             </FormItem>
@@ -132,6 +132,7 @@
 <script>
 import FormGroup from '@/components/common/FormGroup.vue'
 import FormItem from '@/components/common/FormItem.vue'
+import { transformGradioConfig, mergeWithDefaults, getConfigValue } from '@/utils/configHelper'
 
 export default {
   name: 'BrowserSettingsTab',
@@ -148,20 +149,20 @@ export default {
   data() {
     return {
       settings: {
-        browser_binary_path: '',
-        browser_user_data_dir: '',
-        use_own_browser: false,
-        keep_browser_open: true,
+        browserBinaryPath: '',
+        browserUserDataDir: '',
+        useOwnBrowser: false,
+        keepBrowserOpen: true,
         headless: false,
-        disable_security: false,
-        save_recording_path: '',
-        save_trace_path: '',
-        save_agent_history_path: './tmp/agent_history',
-        save_download_path: './tmp/downloads',
-        cdp_url: '',
-        wss_url: '',
-        window_h: 1100,
-        window_w: 1280
+        disableSecurity: false,
+        saveRecordingPath: '',
+        saveTracePath: '',
+        saveAgentHistoryPath: './tmp/agent_history',
+        saveDownloadPath: './tmp/downloads',
+        cdpUrl: '',
+        wssUrl: '',
+        windowHeight: 1100,
+        windowWidth: 1280
       }
     }
   },
@@ -182,13 +183,13 @@ export default {
     'settings.headless'() {
       this.handleBrowserSettingsChange()
     },
-    'settings.keep_browser_open'() {
+    'settings.keepBrowserOpen'() {
       this.handleBrowserSettingsChange()
     },
-    'settings.disable_security'() {
+    'settings.disableSecurity'() {
       this.handleBrowserSettingsChange()
     },
-    'settings.use_own_browser'() {
+    'settings.useOwnBrowser'() {
       this.handleBrowserSettingsChange()
     }
   },

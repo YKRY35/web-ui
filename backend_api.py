@@ -34,6 +34,61 @@ webui_manager = WebuiManager()
 SETTINGS_SAVE_DIR = "./tmp/webui_settings"
 os.makedirs(SETTINGS_SAVE_DIR, exist_ok=True)
 
+
+def parse_gradio_config(ui_settings):
+    """
+    解析 Gradio 格式的配置文件，按 tab 分组
+    原格式: { "agent_settings.llm_provider": "openai", ... }
+    新格式: { agentSettings: { llmProvider: "openai", ... }, browserSettings: { ... } }
+    """
+    # 特殊字段名映射表
+    special_field_mappings = {
+        "window_w": "windowWidth",
+        "window_h": "windowHeight"
+    }
+
+    result = {
+        "agentSettings": {},
+        "browserSettings": {},
+        "otherSettings": {}
+    }
+
+    for comp_id, comp_val in ui_settings.items():
+        # 解析组件ID格式: tab_name.component_name
+        if "." in comp_id:
+            parts = comp_id.split(".", 1)
+            tab_name = parts[0]
+            comp_name = parts[1]
+
+            # 检查是否有特殊字段映射
+            if comp_name in special_field_mappings:
+                camel_name = special_field_mappings[comp_name]
+            else:
+                # 将下划线命名转换为驼峰命名
+                camel_name = snake_to_camel(comp_name)
+
+            if tab_name == "agent_settings":
+                result["agentSettings"][camel_name] = comp_val
+            elif tab_name == "browser_settings":
+                result["browserSettings"][camel_name] = comp_val
+            else:
+                result["otherSettings"][camel_name] = comp_val
+        else:
+            result["otherSettings"][comp_id] = comp_val
+
+    return result
+
+
+def snake_to_camel(snake_str):
+    """
+    将下划线命名转换为驼峰命名
+    例如: llm_provider -> llmProvider
+    """
+    components = snake_str.split('_')
+    # 第一个单词保持小写，后面的单词首字母大写
+    return components[0] + ''.join(x.title() for x in components[1:])
+
+
 # ===== 配置管理 =====
 
 class ConfigSaveResponse(BaseModel):
@@ -45,25 +100,31 @@ class ConfigSaveResponse(BaseModel):
 class ConfigLoadResponse(BaseModel):
     success: bool
     message: str
-    config: dict
+    agentSettings: dict
+    browserSettings: dict
 
 @app.post("/api/load-config", response_model=ConfigLoadResponse)
 async def load_config(file: UploadFile = File(...)):
     """加载 UI 配置"""
     try:
         content = await file.read()
-        config_data = json.loads(content.decode("utf-8"))
+        ui_settings = json.loads(content.decode("utf-8"))
+
+        # 解析配置文件
+        parsed_config = parse_gradio_config(ui_settings)
 
         return ConfigLoadResponse(
             success=True,
             message=f"Successfully loaded config: {file.filename}",
-            config=config_data
+            agentSettings=parsed_config["agentSettings"],
+            browserSettings=parsed_config["browserSettings"]
         )
     except Exception as e:
         return ConfigLoadResponse(
             success=False,
             message=f"Failed to load config: {str(e)}",
-            config={}
+            agentSettings={},
+            browserSettings={}
         )
 
 @app.get("/api/save-config", response_model=ConfigSaveResponse)
@@ -75,8 +136,15 @@ async def save_config():
 
         # 这里需要获取当前 UI 组件的状态
         # 目前先返回简单的响应
+        sample_config = {
+            "agent_settings.llm_provider": "openai",
+            "agent_settings.llm_model_name": "gpt-4",
+            "browser_settings.window_w": 1280,
+            "browser_settings.window_h": 1100
+        }
+
         with open(config_path, "w") as fw:
-            json.dump({"placeholder": "config data"}, fw, indent=4)
+            json.dump(sample_config, fw, indent=4)
 
         return ConfigSaveResponse(
             success=True,

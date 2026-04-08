@@ -65,15 +65,22 @@ export default {
     },
 
     async handleLoadConfig() {
+      debugger
       if (!this.selectedFile) {
         this.$message.warning('Please select a config file first')
         return
       }
 
       try {
-        await this.$api.config.load(this.selectedFile)
+        const result = await this.$api.config.load(this.selectedFile)
         this.status = `Successfully loaded config: ${this.selectedFile.name}`
         this.$message.success('Configuration loaded successfully')
+
+        // 传递解析后的配置数据到父组件
+        this.$emit('config-loaded', {
+          agentSettings: result.agentSettings,
+          browserSettings: result.browserSettings
+        })
       } catch (error) {
         this.status = `Failed to load config: ${error.message}`
         this.$message.error('Failed to load config')
