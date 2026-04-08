@@ -148,6 +148,8 @@ export default {
   },
   data() {
     return {
+      isInitialized: false,
+      isUpdatingFromParent: false, // 防止循环更新的标志位
       settings: {
         browserBinaryPath: '',
         browserUserDataDir: '',
@@ -169,29 +171,60 @@ export default {
   watch: {
     value: {
       handler(val) {
-        this.settings = { ...this.settings, ...val }
+        // 使用标志位防止循环更新
+        this.isUpdatingFromParent = true
+        try {
+          this.settings = { ...this.settings, ...val }
+        } finally {
+          // 使用 $nextTick 确保本次更新完成后再重置标志位
+          this.$nextTick(() => {
+            this.isUpdatingFromParent = false
+          })
+        }
       },
       immediate: true,
       deep: true
     },
     settings: {
       handler(val) {
-        this.$emit('input', val)
+        // 只有在初始化完成后才 emit 事件，避免 LoadConfig 过程中的循环更新
+        // 同时避免从父组件更新时触发 emit，防止循环
+        if (this.isInitialized && !this.isUpdatingFromParent) {
+          this.$emit('input', val)
+        }
       },
       deep: true
     },
     'settings.headless'() {
-      this.handleBrowserSettingsChange()
+      // 避免在 LoadConfig 过程中触发设置变更事件，也避免循环更新
+      if (this.isInitialized && !this.isUpdatingFromParent) {
+        this.handleBrowserSettingsChange()
+      }
     },
     'settings.keepBrowserOpen'() {
-      this.handleBrowserSettingsChange()
+      if (this.isInitialized && !this.isUpdatingFromParent) {
+        this.handleBrowserSettingsChange()
+      }
     },
     'settings.disableSecurity'() {
-      this.handleBrowserSettingsChange()
+      if (this.isInitialized && !this.isUpdatingFromParent) {
+        this.handleBrowserSettingsChange()
+      }
     },
     'settings.useOwnBrowser'() {
-      this.handleBrowserSettingsChange()
+      if (this.isInitialized && !this.isUpdatingFromParent) {
+        this.handleBrowserSettingsChange()
+      }
     }
+  },
+  created() {
+    this.isInitialized = false
+  },
+  mounted() {
+    // 延迟初始化标记，避免在 LoadConfig 过程中触发事件
+    this.$nextTick(() => {
+      this.isInitialized = true
+    })
   },
   methods: {
     handleBrowserSettingsChange() {

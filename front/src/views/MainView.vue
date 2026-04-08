@@ -95,14 +95,14 @@ export default {
       console.log('Config loaded:', config)
 
       // 直接使用后端返回的数据，不做复杂转换
-      // 与原项目保持一致的简单逻辑
+      // 避免使用 Object.assign 或扩展运算符，直接替换对象以断开引用
       if (config.agentSettings) {
-        this.agentSettings = { ...this.agentSettings, ...config.agentSettings }
+        this.agentSettings = JSON.parse(JSON.stringify(config.agentSettings))
         console.log('Agent settings applied:', this.agentSettings)
       }
 
       if (config.browserSettings) {
-        this.browserSettings = { ...this.browserSettings, ...config.browserSettings }
+        this.browserSettings = JSON.parse(JSON.stringify(config.browserSettings))
         console.log('Browser settings applied:', this.browserSettings)
       }
 

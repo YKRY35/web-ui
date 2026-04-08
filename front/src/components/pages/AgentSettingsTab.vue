@@ -265,6 +265,8 @@ export default {
   },
   data() {
     return {
+      isInitialized: false,
+      isUpdatingFromParent: false, // 防止循环更新的标志位
       settings: {
         overrideSystemPrompt: '',
         extendSystemPrompt: '',
@@ -297,17 +299,37 @@ export default {
   watch: {
     value: {
       handler(val) {
-        this.settings = { ...this.settings, ...val }
+        // 使用标志位防止循环更新
+        this.isUpdatingFromParent = true
+        try {
+          this.settings = { ...this.settings, ...val }
+        } finally {
+          // 使用 $nextTick 确保本次更新完成后再重置标志位
+          this.$nextTick(() => {
+            this.isUpdatingFromParent = false
+          })
+        }
       },
       immediate: true,
       deep: true
     },
     settings: {
       handler(val) {
-        this.$emit('input', val)
+        // 如果正在从父组件更新，则不触发 emit，避免循环
+        if (this.isInitialized && !this.isUpdatingFromParent) {
+          this.$emit('input', val)
+        }
       },
       deep: true
     }
+  },
+  created() {
+    this.isInitialized = false
+  },
+  mounted() {
+    this.$nextTick(() => {
+      this.isInitialized = true
+    })
   },
   methods: {
     handleProviderChange(provider) {
