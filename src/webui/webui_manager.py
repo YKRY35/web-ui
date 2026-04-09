@@ -212,6 +212,7 @@ class WebuiManager:
         kwargs = {
             'model': model_name,
             'temperature': temperature,
+            'remove_string_length_limits_from_schema': True,  # 移除不兼容的 string length 限制
         }
 
         if base_url:
@@ -249,11 +250,15 @@ class WebuiManager:
         """
         try:
             await self.bu_agent.run(max_steps=100)  # 使用 browser-use 的 run 方法
+        except asyncio.CancelledError:
+            self.logger.info('Agent task was cancelled')
+            # 重新抛出 CancelledError 以便调用者知道任务被取消
+            raise
         except Exception as e:
             print(f"Agent run error: {e}")
         finally:
             self.bu_is_running = False
-            self.bu_current_task = None
+            # 不要在这里立即设置 bu_current_task 为 None，让调用者处理
 
     async def stop_browser_use_agent(self) -> None:
         """
@@ -264,11 +269,25 @@ class WebuiManager:
         if self.current_browser_settings:
             should_keep_open = self.current_browser_settings.get('keepBrowserOpen', False)
 
-        if self.bu_agent and self.bu_is_running and not should_keep_open:
-            self.bu_agent.stop()  # 使用 browser-use 的 stop 方法
+        if self.bu_agent and self.bu_is_running:
+            # 调用 browser-use 的 stop 方法
+            self.bu_agent.stop()
 
+        # 取消并等待任务完成
         if self.bu_current_task and not self.bu_current_task.done():
             self.bu_current_task.cancel()
+            try:
+                # 等待任务取消完成，但不要无限等待
+                await asyncio.wait_for(self.bu_current_task, timeout=5.0)
+            except asyncio.CancelledError:
+                # 任务被成功取消
+                pass
+            except asyncio.TimeoutError:
+                # 任务取消超时
+                print("Warning: Task cancellation timed out")
+            except Exception as e:
+                # 其他异常
+                print(f"Error while cancelling task: {e}")
 
         self.bu_is_running = False
         self.bu_current_task = None

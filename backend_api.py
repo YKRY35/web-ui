@@ -7,14 +7,6 @@ Browser Use WebUI - Backend API
 import os
 import sys
 
-# 检测是否在 PyCharm 调试模式下运行
-is_pycharm_debug = 'PYCHARM_HOSTED' in os.environ or 'PYDEVD_DEBUG_INFO' in os.environ
-
-# 禁用 asyncio 调试模式以避免与 PyCharm 冲突
-if is_pycharm_debug:
-    import asyncio
-    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-
 import json
 import tempfile
 from datetime import datetime
@@ -25,11 +17,17 @@ from pydantic import BaseModel
 
 from src.webui.webui_manager import WebuiManager
 from src.utils import config
-
+#
 # import pydevd_pycharm
-# pydevd_pycharm.settrace('localhost', port=32123, stdoutToServer=True, stderrToServer=True)
+# pydevd_pycharm.settrace('localhost', port=12321, stdoutToServer=True, stderrToServer=True)
 
-app = FastAPI(title="Browser Use WebUI API", version="1.0.0")
+app = FastAPI(
+    title="Browser Use WebUI API",
+    version="1.0.0",
+    openapi_url=None,       # 禁用 OpenAPI 规范生成
+    docs_url=None,          # 禁用 Swagger UI
+    redoc_url=None          # 禁用 ReDoc
+)
 
 # 允许跨域请求
 app.add_middleware(
@@ -119,6 +117,44 @@ def camel_to_snake(camel_str):
     return ''.join(result)
 
 
+def convert_to_gradio_config(agent_settings, browser_settings):
+    """
+    将当前配置转换为 Gradio 格式的配置
+    Gradio 格式: { "agent_settings.llm_provider": "openai", ... }
+    """
+    result = {}
+
+    # 特殊字段映射表 - 用于反向转换
+    special_field_mappings = {
+        "windowWidth": "window_w",
+        "windowHeight": "window_h"
+    }
+
+    # 转换代理设置
+    for camel_key, value in agent_settings.items():
+        # 检查是否有特殊字段映射
+        if camel_key in special_field_mappings:
+            snake_key = special_field_mappings[camel_key]
+        else:
+            snake_key = camel_to_snake(camel_key)
+
+        gradio_key = f"agent_settings.{snake_key}"
+        result[gradio_key] = value
+
+    # 转换浏览器设置
+    for camel_key, value in browser_settings.items():
+        # 检查是否有特殊字段映射
+        if camel_key in special_field_mappings:
+            snake_key = special_field_mappings[camel_key]
+        else:
+            snake_key = camel_to_snake(camel_key)
+
+        gradio_key = f"browser_settings.{snake_key}"
+        result[gradio_key] = value
+
+    return result
+
+
 def convert_dict_keys(data, converter):
     """
     转换字典的键名
@@ -182,17 +218,18 @@ async def save_config():
         config_name = datetime.now().strftime("%Y%m%d-%H%M%S")
         config_path = os.path.join(SETTINGS_SAVE_DIR, f"{config_name}.json")
 
-        # 这里需要获取当前 UI 组件的状态
-        # 目前先返回简单的响应
-        sample_config = {
-            "agent_settings.llm_provider": "openai",
-            "agent_settings.llm_model_name": "gpt-4",
-            "browser_settings.window_w": 1280,
-            "browser_settings.window_h": 1100
-        }
+        # 获取当前配置
+        agent_settings = await get_agent_settings()
+        browser_settings = await get_browser_settings()
+
+        # 转换为 Gradio 格式的配置
+        gradio_config = convert_to_gradio_config(
+            agent_settings.get("settings", {}),
+            browser_settings.get("settings", {})
+        )
 
         with open(config_path, "w") as fw:
-            json.dump(sample_config, fw, indent=4)
+            json.dump(gradio_config, fw, indent=4)
 
         return ConfigSaveResponse(
             success=True,
@@ -523,15 +560,15 @@ async def get_deep_research_report(task_id: str):
 if __name__ == "__main__":
     import uvicorn
     # 检测是否在 PyCharm 调试模式下运行
-    is_pycharm_debug = 'PYCHARM_HOSTED' in os.environ or 'PYDEVD_DEBUG_INFO' in os.environ
+    # is_pycharm_debug = 'PYCHARM_HOSTED' in os.environ or 'PYDEVD_DEBUG_INFO' in os.environ
 
-    # 在调试模式下使用不同的启动方式
-    if is_pycharm_debug:
-        # 调试模式下使用简单的方式启动
-        import asyncio
-        config = uvicorn.Config(app, host="127.0.0.1", port=7788, log_level="info")
-        server = uvicorn.Server(config)
-        asyncio.run(server.serve())
-    else:
-        # 正常模式下使用标准方式
-        uvicorn.run(app, host="127.0.0.1", port=7788)
+    # # 在调试模式下使用不同的启动方式
+    # if is_pycharm_debug:
+    #     # 调试模式下使用简单的方式启动
+    #     import asyncio
+    #     config = uvicorn.Config(app, host="127.0.0.1", port=7788, log_level="info")
+    #     server = uvicorn.Server(config)
+    #     asyncio.run(server.serve())
+    # else:
+    #     # 正常模式下使用标准方式
+    uvicorn.run(app, host="127.0.0.1", port=7788)
