@@ -135,6 +135,11 @@ class WebuiManager:
         self.current_agent_settings = config.get('agentSettings', {})
         self.current_browser_settings = config.get('browserSettings', {})
 
+        # 检查是否需要重置浏览器和代理（如果 keepBrowserOpen 为 False 或者组件不存在）
+        should_keep_open = False
+        if self.current_browser_settings:
+            should_keep_open = self.current_browser_settings.get('keepBrowserOpen', False)
+
         self.bu_agent_task_id = str(uuid.uuid4())
         self.bu_is_running = True
         self.bu_is_paused = False
@@ -142,7 +147,7 @@ class WebuiManager:
         self.bu_chat_history = []
 
         try:
-            # 初始化浏览器和控制器
+            # 初始化浏览器和控制器（如果需要）
             if self.bu_browser_session is None:
                 browser_config = self.current_browser_settings or {}
 
@@ -165,28 +170,27 @@ class WebuiManager:
             if self.bu_controller is None:
                 self.bu_controller = BrowserUseController()
 
-            # 初始化 Agent
-            if self.bu_agent is None:
-                # 使用保存的配置创建 LLM
-                agent_config = self.current_agent_settings or {}
-                llm = self._create_llm_from_config(agent_config)
+            # 初始化 Agent（总是重新创建代理实例，避免事件总线问题）
+            # 使用保存的配置创建 LLM
+            agent_config = self.current_agent_settings or {}
+            llm = self._create_llm_from_config(agent_config)
 
-                # 合并所有配置
-                agent_run_config = {
-                    **agent_config,
-                    'max_steps': agent_config.get('maxSteps', 100),
-                    'max_actions': agent_config.get('maxActions', 10),
-                    'max_input_tokens': agent_config.get('maxInputTokens', 128000),
-                    'tool_calling_method': agent_config.get('toolCallingMethod', 'auto'),
-                    'task': task
-                }
+            # 合并所有配置
+            agent_run_config = {
+                **agent_config,
+                'max_steps': agent_config.get('maxSteps', 100),
+                'max_actions': agent_config.get('maxActions', 10),
+                'max_input_tokens': agent_config.get('maxInputTokens', 128000),
+                'tool_calling_method': agent_config.get('toolCallingMethod', 'auto'),
+                'task': task
+            }
 
-                self.bu_agent = Agent(
-                    llm=llm,
-                    browser_session=self.bu_browser_session,
-                    controller=self.bu_controller,
-                    **agent_run_config
-                )
+            self.bu_agent = Agent(
+                llm=llm,
+                browser_session=self.bu_browser_session,
+                controller=self.bu_controller,
+                **agent_run_config
+            )
 
             # 运行代理任务
             self.bu_current_task = asyncio.create_task(self._run_agent_task(task))
@@ -277,20 +281,24 @@ class WebuiManager:
         if self.bu_current_task and not self.bu_current_task.done():
             self.bu_current_task.cancel()
             try:
-                # 等待任务取消完成，但不要无限等待
                 await asyncio.wait_for(self.bu_current_task, timeout=5.0)
             except asyncio.CancelledError:
-                # 任务被成功取消
                 pass
             except asyncio.TimeoutError:
-                # 任务取消超时
                 print("Warning: Task cancellation timed out")
             except Exception as e:
-                # 其他异常
                 print(f"Error while cancelling task: {e}")
 
         self.bu_is_running = False
         self.bu_current_task = None
+        self.bu_is_paused = False
+        self.bu_is_waiting_for_help = False
+
+        # 重要：重置代理和相关组件，以便下次运行可以重新初始化
+        if not should_keep_open:
+            self.bu_agent = None
+            self.bu_controller = None
+            self.bu_browser_session = None
 
     async def pause_browser_use_agent(self) -> None:
         """
