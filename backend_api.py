@@ -5,6 +5,16 @@ Browser Use WebUI - Backend API
 将 Gradio 的功能暴露为 REST API
 """
 import os
+import sys
+
+# 检测是否在 PyCharm 调试模式下运行
+is_pycharm_debug = 'PYCHARM_HOSTED' in os.environ or 'PYDEVD_DEBUG_INFO' in os.environ
+
+# 禁用 asyncio 调试模式以避免与 PyCharm 冲突
+if is_pycharm_debug:
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+
 import json
 import tempfile
 from datetime import datetime
@@ -15,6 +25,9 @@ from pydantic import BaseModel
 
 from src.webui.webui_manager import WebuiManager
 from src.utils import config
+
+# import pydevd_pycharm
+# pydevd_pycharm.settrace('localhost', port=32123, stdoutToServer=True, stderrToServer=True)
 
 app = FastAPI(title="Browser Use WebUI API", version="1.0.0")
 
@@ -33,6 +46,10 @@ webui_manager = WebuiManager()
 # 配置保存目录
 SETTINGS_SAVE_DIR = "./tmp/webui_settings"
 os.makedirs(SETTINGS_SAVE_DIR, exist_ok=True)
+
+# 内存中的配置存储
+current_agent_settings = {}
+current_browser_settings = {}
 
 
 def parse_gradio_config(ui_settings):
@@ -89,6 +106,31 @@ def snake_to_camel(snake_str):
     return components[0] + ''.join(x.title() for x in components[1:])
 
 
+def camel_to_snake(camel_str):
+    """
+    将驼峰命名转换为下划线命名
+    例如: llmProvider -> llm_provider
+    """
+    result = []
+    for i, char in enumerate(camel_str):
+        if char.isupper() and i > 0:
+            result.append('_')
+        result.append(char.lower())
+    return ''.join(result)
+
+
+def convert_dict_keys(data, converter):
+    """
+    转换字典的键名
+    """
+    if isinstance(data, dict):
+        return {converter(k): convert_dict_keys(v, converter) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_dict_keys(item, converter) for item in data]
+    else:
+        return data
+
+
 # ===== 配置管理 =====
 
 class ConfigSaveResponse(BaseModel):
@@ -113,6 +155,12 @@ async def load_config(file: UploadFile = File(...)):
         # 解析配置文件
         parsed_config = parse_gradio_config(ui_settings)
 
+        # 更新全局配置 - 这里我们需要将驼峰转换为下划线存储
+        global current_agent_settings, current_browser_settings
+        current_agent_settings = convert_dict_keys(parsed_config["agentSettings"], camel_to_snake)
+        current_browser_settings = convert_dict_keys(parsed_config["browserSettings"], camel_to_snake)
+
+        # 但返回时使用驼峰格式
         return ConfigLoadResponse(
             success=True,
             message=f"Successfully loaded config: {file.filename}",
@@ -184,15 +232,21 @@ class AgentSettings(BaseModel):
     max_input_tokens: Optional[int] = 128000
     tool_calling_method: Optional[str] = "auto"
 
+
 @app.get("/api/agent-settings")
 async def get_agent_settings():
     """获取代理设置"""
     try:
-        # 这里应该从 webui_manager 获取实际设置
-        default_settings = AgentSettings()
+        global current_agent_settings
+        if not current_agent_settings:
+            # 返回默认值
+            default_settings = AgentSettings()
+            current_agent_settings = default_settings.model_dump()
+
+        # 将下划线转换为驼峰返回
         return {
             "success": True,
-            "settings": default_settings.model_dump()
+            "settings": convert_dict_keys(current_agent_settings, snake_to_camel)
         }
     except Exception as e:
         return {
@@ -200,21 +254,35 @@ async def get_agent_settings():
             "message": str(e)
         }
 
+
 @app.post("/api/agent-settings")
-async def update_agent_settings(settings: AgentSettings):
+async def update_agent_settings(settings: dict):
     """更新代理设置"""
     try:
-        # 这里应该保存到 webui_manager 和配置
+        global current_agent_settings
+        # 将前端发送的驼峰命名转换为下划线命名
+        converted_settings = convert_dict_keys(settings, camel_to_snake)
+
+        # 使用转换后的数据验证模型
+        agent_settings = AgentSettings(**converted_settings)
+        current_agent_settings = agent_settings.model_dump()
+
+        # 同时更新 webui_manager 的配置
+        if hasattr(webui_manager, 'current_agent_settings'):
+            webui_manager.current_agent_settings = current_agent_settings
+
+        # 返回转换为驼峰格式的数据
         return {
             "success": True,
             "message": "Agent settings updated successfully",
-            "settings": settings.model_dump()
+            "settings": convert_dict_keys(current_agent_settings, snake_to_camel)
         }
     except Exception as e:
         return {
             "success": False,
             "message": str(e)
         }
+
 
 # ===== 浏览器设置管理 =====
 
@@ -234,14 +302,21 @@ class BrowserSettings(BaseModel):
     window_h: Optional[int] = 1100
     window_w: Optional[int] = 1280
 
+
 @app.get("/api/browser-settings")
 async def get_browser_settings():
     """获取浏览器设置"""
     try:
-        default_settings = BrowserSettings()
+        global current_browser_settings
+        if not current_browser_settings:
+            # 返回默认值
+            default_settings = BrowserSettings()
+            current_browser_settings = default_settings.model_dump()
+
+        # 将下划线转换为驼峰返回
         return {
             "success": True,
-            "settings": default_settings.model_dump()
+            "settings": convert_dict_keys(current_browser_settings, snake_to_camel)
         }
     except Exception as e:
         return {
@@ -249,20 +324,35 @@ async def get_browser_settings():
             "message": str(e)
         }
 
+
 @app.post("/api/browser-settings")
-async def update_browser_settings(settings: BrowserSettings):
+async def update_browser_settings(settings: dict):
     """更新浏览器设置"""
     try:
+        global current_browser_settings
+        # 将前端发送的驼峰命名转换为下划线命名
+        converted_settings = convert_dict_keys(settings, camel_to_snake)
+
+        # 使用转换后的数据验证模型
+        browser_settings = BrowserSettings(**converted_settings)
+        current_browser_settings = browser_settings.model_dump()
+
+        # 同时更新 webui_manager 的配置
+        if hasattr(webui_manager, 'current_browser_settings'):
+            webui_manager.current_browser_settings = current_browser_settings
+
+        # 返回转换为驼峰格式的数据
         return {
             "success": True,
             "message": "Browser settings updated successfully",
-            "settings": settings.model_dump()
+            "settings": convert_dict_keys(current_browser_settings, snake_to_camel)
         }
     except Exception as e:
         return {
             "success": False,
             "message": str(e)
         }
+
 
 # ===== 浏览器使用代理 =====
 
@@ -273,14 +363,22 @@ class BrowserUseAgentRequest(BaseModel):
 async def run_agent(data: BrowserUseAgentRequest):
     """运行代理"""
     try:
-        # 获取当前配置
+        # 获取当前配置 - 这里 get_agent_settings 已经返回了下划线格式
         agent_settings = await get_agent_settings()
         browser_settings = await get_browser_settings()
 
         config = {
-            "agentSettings": agent_settings.get("settings", {}),
-            "browserSettings": browser_settings.get("settings", {})
+            "agentSettings": convert_dict_keys(agent_settings.get("settings", {}), camel_to_snake),
+            "browserSettings": convert_dict_keys(browser_settings.get("settings", {}), camel_to_snake)
         }
+
+        print(f"DEBUG: Running agent with config:")
+        print(f"  agentSettings: {config['agentSettings']}")
+        print(f"  browserSettings: {config['browserSettings']}")
+
+        # 将配置传递给 webui_manager
+        webui_manager.current_agent_settings = config['agentSettings']
+        webui_manager.current_browser_settings = config['browserSettings']
 
         # 运行代理任务
         task_id = await webui_manager.run_browser_use_agent(data.task, config)
@@ -424,4 +522,16 @@ async def get_deep_research_report(task_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=7788)
+    # 检测是否在 PyCharm 调试模式下运行
+    is_pycharm_debug = 'PYCHARM_HOSTED' in os.environ or 'PYDEVD_DEBUG_INFO' in os.environ
+
+    # 在调试模式下使用不同的启动方式
+    if is_pycharm_debug:
+        # 调试模式下使用简单的方式启动
+        import asyncio
+        config = uvicorn.Config(app, host="127.0.0.1", port=7788, log_level="info")
+        server = uvicorn.Server(config)
+        asyncio.run(server.serve())
+    else:
+        # 正常模式下使用标准方式
+        uvicorn.run(app, host="127.0.0.1", port=7788)

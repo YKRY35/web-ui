@@ -45,6 +45,10 @@ class WebuiManager:
         self.bu_is_paused: bool = False
         self.bu_is_waiting_for_help: bool = False
 
+        # 当前配置
+        self.current_agent_settings = None
+        self.current_browser_settings = None
+
     def init_deep_research_agent(self) -> None:
         """
         init deep research agent
@@ -127,6 +131,10 @@ class WebuiManager:
         """
         运行浏览器使用代理 (使用 browser-use)
         """
+        # 保存配置到实例变量
+        self.current_agent_settings = config.get('agentSettings', {})
+        self.current_browser_settings = config.get('browserSettings', {})
+
         self.bu_agent_task_id = str(uuid.uuid4())
         self.bu_is_running = True
         self.bu_is_paused = False
@@ -136,23 +144,48 @@ class WebuiManager:
         try:
             # 初始化浏览器和控制器
             if self.bu_browser_session is None:
-                self.bu_browser_session = BrowserSession()
+                browser_config = self.current_browser_settings or {}
+
+                # 构建浏览器参数
+                browser_args = {
+                    'window_size': {
+                        'width': browser_config.get('windowWidth', 1280),
+                        'height': browser_config.get('windowHeight', 1100)
+                    },
+                    'headless': not browser_config.get('keepBrowserOpen', True),
+                }
+
+                # 只有当 user_data_dir 不为空时才添加
+                user_data_dir = browser_config.get('browserUserDataDir', '')
+                if user_data_dir:
+                    browser_args['user_data_dir'] = user_data_dir
+
+                self.bu_browser_session = BrowserSession(**browser_args)
 
             if self.bu_controller is None:
                 self.bu_controller = BrowserUseController()
 
             # 初始化 Agent
             if self.bu_agent is None:
-                # 根据配置获取LLM
-                llm_config = config.get('agentSettings', {})
-                llm = self._create_llm_from_config(llm_config)
+                # 使用保存的配置创建 LLM
+                agent_config = self.current_agent_settings or {}
+                llm = self._create_llm_from_config(agent_config)
+
+                # 合并所有配置
+                agent_run_config = {
+                    **agent_config,
+                    'max_steps': agent_config.get('maxSteps', 100),
+                    'max_actions': agent_config.get('maxActions', 10),
+                    'max_input_tokens': agent_config.get('maxInputTokens', 128000),
+                    'tool_calling_method': agent_config.get('toolCallingMethod', 'auto'),
+                    'task': task
+                }
 
                 self.bu_agent = Agent(
-                    task=task,
                     llm=llm,
                     browser_session=self.bu_browser_session,
                     controller=self.bu_controller,
-                    **llm_config
+                    **agent_run_config
                 )
 
             # 运行代理任务
@@ -166,11 +199,15 @@ class WebuiManager:
     def _create_llm_from_config(self, config: dict):
         """根据配置创建 LLM 实例"""
         provider = config.get('llm_provider', 'openai')
-        model_name = config.get('model_name', 'gpt-4o')
-        temperature = config.get('temperature', 0.0)
-        base_url = config.get('base_url')
-        api_key = config.get('api_key')
-        num_ctx = config.get('num_ctx')
+        model_name = config.get('llm_model_name', 'gpt-4o')
+        temperature = config.get('llm_temperature', 0.0)
+        base_url = config.get('llm_base_url')
+        api_key = config.get('llm_api_key')
+        num_ctx = config.get('ollama_num_ctx')
+
+        print(f"DEBUG: _create_llm_from_config called with config: {config}")
+        print(f"DEBUG: provider: {provider}, model: {model_name}, temp: {temperature}")
+        print(f"DEBUG: base_url: {base_url}, api_key: {api_key if api_key else 'None'}")
 
         kwargs = {
             'model': model_name,
@@ -183,6 +220,8 @@ class WebuiManager:
             kwargs['api_key'] = api_key
         if num_ctx and provider == 'ollama':
             kwargs['num_ctx'] = num_ctx
+
+        print(f"DEBUG: LLM kwargs: {kwargs}")
 
         if provider == 'openai':
             from browser_use.llm import ChatOpenAI
@@ -220,7 +259,12 @@ class WebuiManager:
         """
         停止浏览器使用代理 (使用 browser-use)
         """
-        if self.bu_agent and self.bu_is_running:
+        # 检查是否应该保持浏览器开启
+        should_keep_open = False
+        if self.current_browser_settings:
+            should_keep_open = self.current_browser_settings.get('keepBrowserOpen', False)
+
+        if self.bu_agent and self.bu_is_running and not should_keep_open:
             self.bu_agent.stop()  # 使用 browser-use 的 stop 方法
 
         if self.bu_current_task and not self.bu_current_task.done():

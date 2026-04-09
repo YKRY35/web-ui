@@ -7,10 +7,10 @@
 
     <TabContainer :tabs="tabs" @tab-change="handleTabChange">
       <template #agent-settings>
-        <AgentSettingsTab v-model="agentSettings" />
+        <AgentSettingsTab v-model="agentSettings" :sync-enabled="!isConfigLoading" />
       </template>
       <template #browser-settings>
-        <BrowserSettingsTab v-model="browserSettings" />
+        <BrowserSettingsTab v-model="browserSettings" :sync-enabled="!isConfigLoading" />
       </template>
       <template #browser-use-agent>
         <BrowserUseAgentTab />
@@ -53,7 +53,9 @@ export default {
         { name: 'load-save-config', label: '📁 Load & Save Config' }
       ],
       agentSettings: {},
-      browserSettings: {}
+      browserSettings: {},
+      // 添加标志位来控制watch触发
+      isConfigLoading: false
     }
   },
   created() {
@@ -62,13 +64,19 @@ export default {
   watch: {
     agentSettings: {
       handler(val) {
-        this.$storage.saveAgentSettings(val)
+        // 只有在非配置加载状态下才触发更新
+        if (!this.isConfigLoading) {
+          this.$storage.saveAgentSettings(val)
+        }
       },
       deep: true
     },
     browserSettings: {
       handler(val) {
-        this.$storage.saveBrowserSettings(val)
+        // 只有在非配置加载状态下才触发更新
+        if (!this.isConfigLoading) {
+          this.$storage.saveBrowserSettings(val)
+        }
       },
       deep: true
     }
@@ -94,8 +102,10 @@ export default {
     handleConfigLoaded(config) {
       console.log('Config loaded:', config)
 
+      // 设置加载标志位，防止watch触发
+      this.isConfigLoading = true
+
       // 直接使用后端返回的数据，不做复杂转换
-      // 避免使用 Object.assign 或扩展运算符，直接替换对象以断开引用
       if (config.agentSettings) {
         this.agentSettings = JSON.parse(JSON.stringify(config.agentSettings))
         console.log('Agent settings applied:', this.agentSettings)
@@ -106,7 +116,28 @@ export default {
         console.log('Browser settings applied:', this.browserSettings)
       }
 
-      this.$message.success('Configuration loaded successfully')
+      // 加载配置后同步到后端
+      this.$nextTick(async () => {
+        try {
+          if (config.agentSettings) {
+            await this.$api.agentSettings.update(config.agentSettings)
+            console.log('Agent settings synced to backend after load')
+          }
+
+          if (config.browserSettings) {
+            await this.$api.browserSettings.update(config.browserSettings)
+            console.log('Browser settings synced to backend after load')
+          }
+
+          this.$message.success('Configuration loaded and synced to backend successfully')
+        } catch (error) {
+          console.error('Failed to sync settings after load:', error)
+          this.$message.error('Configuration loaded but failed to sync to backend')
+        } finally {
+          // 重置加载标志位
+          this.isConfigLoading = false
+        }
+      })
     }
   }
 }

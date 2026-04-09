@@ -261,6 +261,10 @@ export default {
     value: {
       type: Object,
       default: () => ({})
+    },
+    syncEnabled: {
+      type: Boolean,
+      default: true
     }
   },
   data() {
@@ -315,9 +319,15 @@ export default {
     },
     settings: {
       handler(val) {
-        // 如果正在从父组件更新，则不触发 emit，避免循环
+        // 如果正在从父组件更新，则不触发 emit 和同步，避免循环
         if (this.isInitialized && !this.isUpdatingFromParent) {
           this.$emit('input', val)
+
+          // 只有在 syncEnabled 为 true 时才同步到后端
+          if (this.syncEnabled) {
+            // 防抖同步到后端
+            this.debouncedSyncToBackend()
+          }
         }
       },
       deep: true
@@ -325,6 +335,9 @@ export default {
   },
   created() {
     this.isInitialized = false
+
+    // 创建防抖函数
+    this.debouncedSyncToBackend = this.debounce(this.syncToBackend, 500)
   },
   mounted() {
     this.$nextTick(() => {
@@ -365,6 +378,28 @@ export default {
           }
         }
         reader.readAsText(file.raw)
+      }
+    },
+    // 同步配置到后端
+    async syncToBackend() {
+      try {
+        await this.$api.agentSettings.update(this.settings)
+        console.log('Agent settings synced to backend')
+      } catch (error) {
+        console.error('Failed to sync agent settings:', error)
+        this.$message.error('Failed to save settings to backend')
+      }
+    },
+    // 防抖函数
+    debounce(func, wait) {
+      let timeout
+      return function executedFunction(...args) {
+        const later = () => {
+          clearTimeout(timeout)
+          func(...args)
+        }
+        clearTimeout(timeout)
+        timeout = setTimeout(later, wait)
       }
     }
   }

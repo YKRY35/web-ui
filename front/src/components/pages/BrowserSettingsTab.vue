@@ -144,6 +144,10 @@ export default {
     value: {
       type: Object,
       default: () => ({})
+    },
+    syncEnabled: {
+      type: Boolean,
+      default: true
     }
   },
   data() {
@@ -191,34 +195,47 @@ export default {
         // 同时避免从父组件更新时触发 emit，防止循环
         if (this.isInitialized && !this.isUpdatingFromParent) {
           this.$emit('input', val)
+
+          // 只有在 syncEnabled 为 true 时才同步到后端
+          if (this.syncEnabled) {
+            // 防抖同步到后端
+            this.debouncedSyncToBackend()
+          }
         }
       },
       deep: true
     },
     'settings.headless'() {
       // 避免在 LoadConfig 过程中触发设置变更事件，也避免循环更新
-      if (this.isInitialized && !this.isUpdatingFromParent) {
+      if (this.isInitialized && !this.isUpdatingFromParent && this.syncEnabled) {
         this.handleBrowserSettingsChange()
+        this.debouncedSyncToBackend()
       }
     },
     'settings.keepBrowserOpen'() {
-      if (this.isInitialized && !this.isUpdatingFromParent) {
+      if (this.isInitialized && !this.isUpdatingFromParent && this.syncEnabled) {
         this.handleBrowserSettingsChange()
+        this.debouncedSyncToBackend()
       }
     },
     'settings.disableSecurity'() {
-      if (this.isInitialized && !this.isUpdatingFromParent) {
+      if (this.isInitialized && !this.isUpdatingFromParent && this.syncEnabled) {
         this.handleBrowserSettingsChange()
+        this.debouncedSyncToBackend()
       }
     },
     'settings.useOwnBrowser'() {
-      if (this.isInitialized && !this.isUpdatingFromParent) {
+      if (this.isInitialized && !this.isUpdatingFromParent && this.syncEnabled) {
         this.handleBrowserSettingsChange()
+        this.debouncedSyncToBackend()
       }
     }
   },
   created() {
     this.isInitialized = false
+
+    // 创建防抖函数
+    this.debouncedSyncToBackend = this.debounce(this.syncToBackend, 500)
   },
   mounted() {
     // 延迟初始化标记，避免在 LoadConfig 过程中触发事件
@@ -229,6 +246,28 @@ export default {
   methods: {
     handleBrowserSettingsChange() {
       this.$emit('settings-change', this.settings)
+    },
+    // 同步配置到后端
+    async syncToBackend() {
+      try {
+        await this.$api.browserSettings.update(this.settings)
+        console.log('Browser settings synced to backend')
+      } catch (error) {
+        console.error('Failed to sync browser settings:', error)
+        this.$message.error('Failed to save settings to backend')
+      }
+    },
+    // 防抖函数
+    debounce(func, wait) {
+      let timeout
+      return function executedFunction(...args) {
+        const later = () => {
+          clearTimeout(timeout)
+          func(...args)
+        }
+        clearTimeout(timeout)
+        timeout = setTimeout(later, wait)
+      }
     }
   }
 }

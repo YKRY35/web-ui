@@ -37,6 +37,14 @@ async def _initialize_llm(
         num_ctx: Optional[int] = None,
 ) -> Optional[BaseChatModel]:
     """Initializes the LLM based on settings using browser-use's LLM classes."""
+    print(f"DEBUG: _initialize_llm called with:")
+    print(f"  provider: {provider}")
+    print(f"  model_name: {model_name}")
+    print(f"  temperature: {temperature}")
+    print(f"  base_url: {base_url}")
+    print(f"  api_key: {api_key if api_key else 'None'}")
+    print(f"  num_ctx: {num_ctx}")
+
     if not provider or not model_name:
         logger.info("LLM Provider or Model Name not specified, LLM will be None.")
         return None
@@ -438,7 +446,7 @@ async def run_agent_task(
     async def ask_callback_wrapper(
             query: str, session: BrowserSession
     ) -> Dict[str, Any]:
-        return await _ask_assistant_callback(webui_manager, query, browser_context)
+        return await _ask_assistant_callback(webui_manager, query, session)
 
     if not webui_manager.bu_controller:
         webui_manager.bu_controller = BrowserUseTools(
