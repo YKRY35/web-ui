@@ -1,6 +1,7 @@
 import Vue from 'vue'
 import VueRouter from 'vue-router'
 import MainView from '@/views/MainView.vue'
+import DetailView from '@/views/DetailView.vue'
 
 Vue.use(VueRouter)
 
@@ -9,6 +10,11 @@ const routes = [
     path: '/',
     name: 'Main',
     component: MainView
+  },
+  {
+    path: '/detail',
+    name: 'Detail',
+    component: DetailView
   }
 ]
 

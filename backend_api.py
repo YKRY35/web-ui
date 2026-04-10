@@ -18,8 +18,8 @@ from pydantic import BaseModel
 from src.webui.webui_manager import WebuiManager
 from src.utils import config
 #
-# import pydevd_pycharm
-# pydevd_pycharm.settrace('localhost', port=12321, stdoutToServer=True, stderrToServer=True)
+#import pydevd_pycharm
+#pydevd_pycharm.settrace('localhost', port=12321, stdoutToServer=True, stderrToServer=True)
 
 app = FastAPI(
     title="Browser Use WebUI API",
