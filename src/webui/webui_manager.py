@@ -147,9 +147,19 @@ class WebuiManager:
         self.bu_chat_history = []
 
         try:
-            # 初始化浏览器和控制器（如果需要）
-            if self.bu_browser_session is None:
-                browser_config = self.current_browser_settings or {}
+            browser_config = self.current_browser_settings or {}
+
+            # 每次新任务都重新创建 browser_session 和 controller，
+            # 确保新 Agent 的事件总线能正确注册到 BrowserSession 上。
+            # 仅当 keep_browser_open=True 且 session 已存在时复用。
+            if not should_keep_open or self.bu_browser_session is None:
+                # 关闭旧 session（如果存在）
+                if self.bu_browser_session is not None:
+                    try:
+                        await self.bu_browser_session.close()
+                    except Exception:
+                        pass
+                    self.bu_browser_session = None
 
                 # 构建浏览器参数
                 browser_args = {
@@ -167,7 +177,7 @@ class WebuiManager:
 
                 self.bu_browser_session = BrowserSession(**browser_args)
 
-            if self.bu_controller is None:
+            if not should_keep_open or self.bu_controller is None:
                 self.bu_controller = BrowserUseController()
 
             # 初始化 Agent（总是重新创建代理实例，避免事件总线问题）

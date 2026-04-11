@@ -1,5 +1,18 @@
 <template>
-  <div class="detail-view" ref="layoutContainer"></div>
+  <div class="detail-view">
+    <div class="top-bar">
+      <el-button
+        type="primary"
+        size="small"
+        icon="el-icon-back"
+        @click="$router.push('/')"
+        title="Back to Home"
+      >
+        Back
+      </el-button>
+    </div>
+    <div class="layout-container" ref="layoutContainer"></div>
+  </div>
 </template>
 
 <script>
@@ -80,6 +93,26 @@ export default {
 @import '~golden-layout/dist/css/goldenlayout-base.css';
 @import '~golden-layout/dist/css/themes/goldenlayout-light-theme.css';
 
+.detail-view {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.top-bar {
+  padding: 10px;
+  background: #f5f7fa;
+  border-bottom: 1px solid #e4e7ed;
+  display: flex;
+  align-items: center;
+}
+
+.layout-container {
+  flex: 1;
+  overflow: hidden;
+}
+
 .lm_content {
   background: #ffffff;
   overflow: hidden;
@@ -97,12 +130,4 @@ export default {
 }
 .lm_splitter { background: #dcdfe6; }
 .lm_splitter:hover, .lm_splitter.lm_dragging { background: #409EFF; }
-</style>
-
-<style scoped>
-.detail-view {
-  width: 100%;
-  height: 100vh;
-  overflow: hidden;
-}
 </style>

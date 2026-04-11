@@ -6,6 +6,7 @@ Browser Use WebUI - Backend API
 """
 import os
 import sys
+import glob
 
 import json
 import tempfile
@@ -48,50 +49,6 @@ os.makedirs(SETTINGS_SAVE_DIR, exist_ok=True)
 # 内存中的配置存储
 current_agent_settings = {}
 current_browser_settings = {}
-
-
-def parse_gradio_config(ui_settings):
-    """
-    解析 Gradio 格式的配置文件，按 tab 分组
-    原格式: { "agent_settings.llm_provider": "openai", ... }
-    新格式: { agentSettings: { llmProvider: "openai", ... }, browserSettings: { ... } }
-    """
-    # 特殊字段名映射表
-    special_field_mappings = {
-        "window_w": "windowWidth",
-        "window_h": "windowHeight"
-    }
-
-    result = {
-        "agentSettings": {},
-        "browserSettings": {},
-        "otherSettings": {}
-    }
-
-    for comp_id, comp_val in ui_settings.items():
-        # 解析组件ID格式: tab_name.component_name
-        if "." in comp_id:
-            parts = comp_id.split(".", 1)
-            tab_name = parts[0]
-            comp_name = parts[1]
-
-            # 检查是否有特殊字段映射
-            if comp_name in special_field_mappings:
-                camel_name = special_field_mappings[comp_name]
-            else:
-                # 将下划线命名转换为驼峰命名
-                camel_name = snake_to_camel(comp_name)
-
-            if tab_name == "agent_settings":
-                result["agentSettings"][camel_name] = comp_val
-            elif tab_name == "browser_settings":
-                result["browserSettings"][camel_name] = comp_val
-            else:
-                result["otherSettings"][camel_name] = comp_val
-        else:
-            result["otherSettings"][comp_id] = comp_val
-
-    return result
 
 
 def snake_to_camel(snake_str):
@@ -180,6 +137,97 @@ class ConfigLoadResponse(BaseModel):
     message: str
     agentSettings: dict
     browserSettings: dict
+
+
+def load_latest_config():
+    """
+    加载 tmp/webui_settings/ 目录中最新的配置文件
+    """
+    global current_agent_settings, current_browser_settings
+
+    try:
+        # 查找所有 .json 配置文件
+        config_files = glob.glob(os.path.join(SETTINGS_SAVE_DIR, "*.json"))
+
+        if config_files:
+            # 按修改时间排序，获取最新的文件
+            config_files.sort(key=os.path.getmtime, reverse=True)
+            latest_file = config_files[0]
+
+            print(f"INFO: Loading latest configuration from: {latest_file}")
+
+            with open(latest_file, "r") as f:
+                ui_settings = json.load(f)
+
+            # 解析配置文件
+            parsed_config = parse_gradio_config(ui_settings)
+
+            # 更新全局配置
+            current_agent_settings = convert_dict_keys(parsed_config["agentSettings"], camel_to_snake)
+            current_browser_settings = convert_dict_keys(parsed_config["browserSettings"], camel_to_snake)
+
+            print(f"INFO: Successfully loaded agent settings: {list(current_agent_settings.keys())}")
+            print(f"INFO: Successfully loaded browser settings: {list(current_browser_settings.keys())}")
+
+            return True
+        else:
+            print("INFO: No configuration files found, using defaults")
+            return False
+
+    except Exception as e:
+        print(f"WARNING: Failed to load latest configuration: {str(e)}")
+        return False
+
+
+
+def parse_gradio_config(ui_settings):
+    """
+    解析 Gradio 格式的配置文件，按 tab 分组
+    原格式: { "agent_settings.llm_provider": "openai", ... }
+    新格式: { agentSettings: { llmProvider: "openai", ... }, browserSettings: { ... } }
+    """
+    # 特殊字段名映射表
+    special_field_mappings = {
+        "window_w": "windowWidth",
+        "window_h": "windowHeight"
+    }
+
+    result = {
+        "agentSettings": {},
+        "browserSettings": {},
+        "otherSettings": {}
+    }
+
+    for comp_id, comp_val in ui_settings.items():
+        # 解析组件ID格式: tab_name.component_name
+        if "." in comp_id:
+            parts = comp_id.split(".", 1)
+            tab_name = parts[0]
+            comp_name = parts[1]
+
+            # 检查是否有特殊字段映射
+            if comp_name in special_field_mappings:
+                camel_name = special_field_mappings[comp_name]
+            else:
+                # 将下划线命名转换为驼峰命名
+                camel_name = snake_to_camel(comp_name)
+
+            if tab_name == "agent_settings":
+                result["agentSettings"][camel_name] = comp_val
+            elif tab_name == "browser_settings":
+                result["browserSettings"][camel_name] = comp_val
+            else:
+                result["otherSettings"][camel_name] = comp_val
+        else:
+            result["otherSettings"][comp_id] = comp_val
+
+    return result
+
+
+# 应用启动时加载最新配置
+print("INFO: Starting backend API...")
+load_latest_config()
+
 
 @app.post("/api/load-config", response_model=ConfigLoadResponse)
 async def load_config(file: UploadFile = File(...)):

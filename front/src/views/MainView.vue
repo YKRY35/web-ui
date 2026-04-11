@@ -1,7 +1,18 @@
 <template>
   <div class="main-view">
     <div class="header">
-      <h1>🌐 Browser Use WebUI</h1>
+      <div class="title-container">
+        <h1>🌐 Browser Use WebUI</h1>
+        <el-button
+          type="primary"
+          size="small"
+          icon="el-icon-view"
+          @click="$router.push('/detail')"
+          title="View Detail"
+        >
+          Detail
+        </el-button>
+      </div>
       <p class="subtitle">Control your browser with AI assistance</p>
     </div>
 
@@ -155,10 +166,17 @@ export default {
   margin-bottom: 30px;
 }
 
+.title-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+}
+
 .header h1 {
   font-size: 28px;
   color: #303133;
-  margin-bottom: 10px;
+  margin: 0;
 }
 
 .subtitle {
