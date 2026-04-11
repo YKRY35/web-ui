@@ -8,6 +8,9 @@ import uuid
 import asyncio
 import time
 
+# 步骤历史最大缓存条数
+MAX_STEP_HISTORY = 200
+
 from browser_use.agent.service import Agent
 from browser_use.browser.session import BrowserSession
 from browser_use.controller import Controller as BrowserUseController
@@ -18,12 +21,15 @@ from src.webui.browser_use_compat import BrowserState, AgentHistoryList, AgentOu
 
 
 class WebuiManager:
-    def __init__(self, settings_save_dir: str = "./tmp/webui_settings"):
+    def __init__(self, settings_save_dir: str = "./tmp/webui_settings", ws_broadcast_func=None):
         self.id_to_component: dict[str, "Component"] = {}
         self.component_to_id: dict["Component", str] = {}
 
         self.settings_save_dir = settings_save_dir
         os.makedirs(self.settings_save_dir, exist_ok=True)
+
+        # WebSocket 广播函数，用于实时推送步骤数据
+        self.ws_broadcast_func = ws_broadcast_func
 
         # 初始化代理和浏览器
         self.init_browser_use_agent()
@@ -44,6 +50,9 @@ class WebuiManager:
         self.bu_is_running: bool = False
         self.bu_is_paused: bool = False
         self.bu_is_waiting_for_help: bool = False
+
+        # 步骤历史缓存（内存，重启后清空）
+        self.bu_step_history: List[Dict] = []
 
         # 当前配置
         self.current_agent_settings = None
@@ -145,6 +154,7 @@ class WebuiManager:
         self.bu_is_paused = False
         self.bu_is_waiting_for_help = False
         self.bu_chat_history = []
+        self.bu_step_history = []  # 每次新任务清空步骤历史
 
         try:
             browser_config = self.current_browser_settings or {}
@@ -199,6 +209,7 @@ class WebuiManager:
                 llm=llm,
                 browser_session=self.bu_browser_session,
                 controller=self.bu_controller,
+                register_new_step_callback=self._on_agent_step,
                 **agent_run_config
             )
 
@@ -209,6 +220,43 @@ class WebuiManager:
         except Exception as e:
             self.bu_is_running = False
             raise e
+
+    def _on_agent_step(self, browser_state_summary, agent_output, step_number):
+        """代理步骤回调 - 缓存步骤并通过 WebSocket 广播步骤数据"""
+        # 格式化步骤数据
+        step_data = {
+            "type": "step",
+            "data": {
+                "step_number": step_number,
+                "timestamp": datetime.now().isoformat(),
+                "model_output": agent_output.model_dump() if agent_output else None,
+                "result": [r.model_dump() for r in browser_state_summary.result] if hasattr(browser_state_summary, 'result') else [],
+                "state": {
+                    "url": browser_state_summary.url,
+                    "title": browser_state_summary.title,
+                    "screenshot": browser_state_summary.screenshot,
+                    "browser_errors": browser_state_summary.browser_errors,
+                    "recent_events": browser_state_summary.recent_events
+                },
+                "action_summary": agent_output.action[0].model_dump() if agent_output and agent_output.action else None
+            }
+        }
+
+        # 缓存步骤历史（上限 MAX_STEP_HISTORY 条）
+        self.bu_step_history.append(step_data)
+        if len(self.bu_step_history) > MAX_STEP_HISTORY:
+            self.bu_step_history = self.bu_step_history[-MAX_STEP_HISTORY:]
+
+        # 广播步骤数据（_on_agent_step 是同步回调，使用 asyncio.create_task 异步调度）
+        if self.ws_broadcast_func:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self.ws_broadcast_func(step_data))
+                else:
+                    loop.run_until_complete(self.ws_broadcast_func(step_data))
+            except Exception as e:
+                print(f"WebSocket broadcast error: {e}")
 
     def _create_llm_from_config(self, config: dict):
         """根据配置创建 LLM 实例"""

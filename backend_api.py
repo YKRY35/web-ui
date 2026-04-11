@@ -12,12 +12,42 @@ import json
 import tempfile
 from datetime import datetime
 from typing import Optional
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, File, UploadFile, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from src.webui.webui_manager import WebuiManager
 from src.utils import config
+
+
+class ConnectionManager:
+    """管理 WebSocket 连接，支持向所有连接的客户端广播消息"""
+
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        """向所有连接的客户端广播 JSON 消息"""
+        disconnected = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                disconnected.append(connection)
+        for conn in disconnected:
+            self.disconnect(conn)
+
+
+ws_manager = ConnectionManager()
+
 #
 #import pydevd_pycharm
 #pydevd_pycharm.settrace('localhost', port=12321, stdoutToServer=True, stderrToServer=True)
@@ -40,7 +70,7 @@ app.add_middleware(
 )
 
 # 初始化 WebuiManager
-webui_manager = WebuiManager()
+webui_manager = WebuiManager(ws_broadcast_func=ws_manager.broadcast)
 
 # 配置保存目录
 SETTINGS_SAVE_DIR = "./tmp/webui_settings"
@@ -604,6 +634,59 @@ async def get_deep_research_report(task_id: str):
             "success": False,
             "message": str(e)
         }
+
+
+# ===== 步骤历史查询接口 =====
+
+@app.get("/api/agent/steps")
+async def get_agent_steps():
+    """获取当前任务的历史步骤列表（供新连接客户端补全历史）"""
+    return {
+        "success": True,
+        "task_id": webui_manager.bu_agent_task_id,
+        "steps": webui_manager.bu_step_history
+    }
+
+
+# ===== WebSocket 长连接 =====
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket 长连接端点，用于实时推送步骤数据和其他消息。
+
+    消息格式 (服务端推送):
+    {
+        "type": "step" | "status" | "error" | "history" | ... ,
+        "data": { ... }
+    }
+
+    - type="step": 代理执行步骤数据（实时）
+    - type="history": 连接时推送的历史步骤列表
+    - type="status": 代理运行状态变更
+    - type="error": 错误信息
+    """
+    await ws_manager.connect(websocket)
+    # 新客户端连接后，立即推送当前历史步骤（补全错过的步骤）
+    if webui_manager.bu_step_history:
+        try:
+            await websocket.send_json({
+                "type": "history",
+                "data": {
+                    "task_id": webui_manager.bu_agent_task_id,
+                    "steps": webui_manager.bu_step_history
+                }
+            })
+        except Exception:
+            pass
+    try:
+        while True:
+            # 接收客户端消息 (保持连接活跃，也可用于客户端请求)
+            data = await websocket.receive_text()
+            # 目前仅用于保持连接，未来可扩展客户端请求逻辑
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+
 
 if __name__ == "__main__":
     import uvicorn

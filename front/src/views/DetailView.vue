@@ -21,11 +21,12 @@ import Vue from 'vue'
 import CanvasPanel from '@/components/detail/CanvasPanel.vue'
 import ControlPanel from '@/components/detail/ControlPanel.vue'
 import StepsPanel from '@/components/detail/StepsPanel.vue'
+import { websocketManager } from '@/utils/websocket'
 
 export default {
   name: 'DetailView',
   data() {
-    return { layout: null }
+    return { layout: null, websocket: websocketManager }
   },
   mounted() {
     this.$nextTick(this.initLayout)
@@ -42,9 +43,13 @@ export default {
       const instance = new Vue({
         render: h => h(Component)
       }).$mount(el)
-      // inject $api into the component instance
+      // inject $api and $websocket into the component instance
       if (extraProps) {
         Object.assign(instance.$children[0], extraProps)
+        // 注入完成后，调用组件的后置初始化钩子（如果存在）
+        if (typeof instance.$children[0].$onInjected === 'function') {
+          instance.$children[0].$onInjected()
+        }
       }
       return instance
     },
@@ -52,6 +57,7 @@ export default {
       const container = this.$refs.layoutContainer
       if (!container) return
       const api = this.$api
+      const websocket = this.websocket
 
       this.layout = new GoldenLayout(container)
 
@@ -61,11 +67,11 @@ export default {
       })
 
       this.layout.registerComponentFactoryFunction('control-panel', (glContainer) => {
-        this.mountComponent(ControlPanel, glContainer, { $api: api })
+        this.mountComponent(ControlPanel, glContainer, { $api: api, $websocket: websocket })
       })
 
       this.layout.registerComponentFactoryFunction('steps-panel', (glContainer) => {
-        this.mountComponent(StepsPanel, glContainer)
+        this.mountComponent(StepsPanel, glContainer, { $websocket: websocket })
       })
 
       this.layout.loadLayout({

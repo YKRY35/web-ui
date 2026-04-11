@@ -6,7 +6,7 @@
     </div>
     <el-input
       v-model="userInput"
-      placeholder="Enter your task or response..."
+      placeholder="打开百度，搜索金价"
       type="textarea"
       :autosize="{ minRows: 4, maxRows: 10 }"
       @keyup.ctrl.enter.native="handleInputSubmit"
@@ -57,6 +57,7 @@ export default {
       this.isWaitingForHelp = false
       this.currentTaskId = Date.now().toString()
       bus.$emit('step-added', { id: Date.now(), type: 'user', content: task, timestamp: new Date(), status: 'running' })
+      console.log('Emitted step-added event:', { id: Date.now(), type: 'user', content: task, timestamp: new Date(), status: 'running' })
       try {
         const response = await this.$api.browserUseAgent.run({ task })
         if (response && response.task_id) this.currentTaskId = response.task_id
@@ -65,6 +66,7 @@ export default {
       } catch (error) {
         this.isRunning = false
         bus.$emit('step-added', { id: Date.now(), type: 'error', content: `Error: ${error.message}`, timestamp: new Date(), status: 'error' })
+        console.log('Emitted step-added error event:', { id: Date.now(), type: 'error', content: `Error: ${error.message}`, timestamp: new Date(), status: 'error' })
       }
     },
     async handleStop() {
@@ -106,7 +108,10 @@ export default {
         try {
           const status = await this.$api.browserUseAgent.getStatus(this.currentTaskId)
           if (status) {
-            if (status.chat_history) bus.$emit('steps-updated', status.chat_history)
+            if (status.chat_history) {
+              bus.$emit('steps-updated', status.chat_history)
+              console.log('Emitted steps-updated event:', status.chat_history)
+            }
             if (status.is_waiting_for_help) this.isWaitingForHelp = true
             if (!status.is_running) {
               this.isRunning = false
