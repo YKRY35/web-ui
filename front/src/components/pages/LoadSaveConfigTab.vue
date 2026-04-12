@@ -9,7 +9,6 @@
           <el-form label-width="180px">
             <FormItem label="Load UI Settings">
               <el-upload
-                action=""
                 :auto-upload="false"
                 :on-change="handleLoadFileChange"
                 :show-file-list="false"

@@ -51,9 +51,6 @@ class WebuiManager:
         self.bu_is_paused: bool = False
         self.bu_is_waiting_for_help: bool = False
 
-        # 实时画面捕获服务
-        self.bu_screen_capture: Optional[Any] = None
-
         # 步骤历史缓存（内存，重启后清空）
         self.bu_step_history: List[Dict] = []
 
@@ -216,14 +213,6 @@ class WebuiManager:
                 **agent_run_config
             )
 
-            # 初始化画面捕获服务
-            from src.browser.screen_capture_service import ScreenCaptureService
-            self.bu_screen_capture = ScreenCaptureService(
-                self.bu_browser_session,
-                self.ws_broadcast_func
-            )
-            await self.bu_screen_capture.start_capture()
-
             # 运行代理任务
             self.bu_current_task = asyncio.create_task(self._run_agent_task(task))
             return self.bu_agent_task_id
@@ -359,14 +348,6 @@ class WebuiManager:
         """
         停止浏览器使用代理 (使用 browser-use)
         """
-        # 停止画面捕获服务
-        if self.bu_screen_capture:
-            try:
-                await self.bu_screen_capture.stop_capture()
-            except Exception as e:
-                print(f"Error stopping screen capture: {e}")
-            self.bu_screen_capture = None
-
         # 检查是否应该保持浏览器开启
         should_keep_open = False
         if self.current_browser_settings:
