@@ -56,8 +56,6 @@ export default {
       this.isRunning = true
       this.isWaitingForHelp = false
       this.currentTaskId = Date.now().toString()
-      bus.$emit('step-added', { id: Date.now(), type: 'user', content: task, timestamp: new Date(), status: 'running' })
-      console.log('Emitted step-added event:', { id: Date.now(), type: 'user', content: task, timestamp: new Date(), status: 'running' })
       try {
         const response = await this.$api.browserUseAgent.run({ task })
         if (response && response.task_id) this.currentTaskId = response.task_id
@@ -66,7 +64,6 @@ export default {
       } catch (error) {
         this.isRunning = false
         bus.$emit('step-added', { id: Date.now(), type: 'error', content: `Error: ${error.message}`, timestamp: new Date(), status: 'error' })
-        console.log('Emitted step-added error event:', { id: Date.now(), type: 'error', content: `Error: ${error.message}`, timestamp: new Date(), status: 'error' })
       }
     },
     async handleStop() {

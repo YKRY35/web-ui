@@ -28,11 +28,19 @@
         <div class="step-num">{{ idx + 1 }}</div>
         <div class="step-body">
           <div class="step-meta">
-            <el-tag size="mini" :type="tagType(step.type)">
-              {{ labelOf(step.type) }}
-            </el-tag>
             <span v-if="step.stepNumber" class="step-seq">Step {{ step.stepNumber }}</span>
             <span class="step-time">{{ formatTime(step.timestamp) }}</span>
+          </div>
+
+          <!-- 用户意图（next_goal） -->
+          <div v-if="step.intent" class="step-intent">
+            <i class="el-icon-aim"></i> {{ step.intent }}
+          </div>
+
+          <!-- 操作元素 XPath -->
+          <div v-if="step.xpath" class="step-xpath">
+            <span class="xpath-label">XPath:</span>
+            <code class="xpath-value">{{ step.xpath }}</code>
           </div>
 
           <!-- 操作摘要（最醒目） -->
@@ -148,7 +156,13 @@ export default {
     _parseStepData(data) {
       if (!data) return null
 
-      const { step_number, timestamp, model_output, result, state, action_summary } = data
+      const { step_number, timestamp, model_output, result, state, action_summary, next_goal, xpath } = data
+
+      // 用户意图：优先用顶层 next_goal，再从 model_output 提取
+      const intent = next_goal
+        || (model_output && model_output.next_goal)
+        || (model_output && model_output.current_state && model_output.current_state.next_goal)
+        || ''
 
       // 操作摘要：优先用 action_summary，其次从 model_output 提取
       let actionSummary = ''
@@ -191,6 +205,8 @@ export default {
         type: 'agent',
         stepNumber: step_number,
         timestamp: timestamp ? new Date(timestamp) : new Date(),
+        intent,
+        xpath: xpath || '',
         actionSummary,
         thought,
         resultText,
@@ -347,6 +363,40 @@ export default {
   word-break: break-word;
 }
 .step-action i { color: #409eff; margin-right: 3px; }
+
+.step-intent {
+  font-size: 13px;
+  color: #303133;
+  font-weight: 600;
+  margin-bottom: 4px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.step-intent i { color: #409eff; margin-right: 3px; }
+
+.step-xpath {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.xpath-label {
+  font-size: 11px;
+  color: #909399;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+.xpath-value {
+  font-size: 11px;
+  color: #606266;
+  background: #f5f7fa;
+  padding: 1px 5px;
+  border-radius: 3px;
+  word-break: break-all;
+  font-family: monospace;
+}
 
 .step-page {
   display: flex;
