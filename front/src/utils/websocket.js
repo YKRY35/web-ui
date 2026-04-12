@@ -1,4 +1,7 @@
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+/**
+ * WebSocket 管理器 - 适用于 Vue 2
+ * WebSocket Manager - Vue 2 compatible
+ */
 
 export class WebSocketManager {
   constructor(url) {
@@ -8,9 +11,10 @@ export class WebSocketManager {
     this.maxReconnectAttempts = Infinity  // 无限重连
     this.reconnectDelay = 1000
     this.reconnectDelayMax = 30000  // 最大重连间隔 30s
-    this.isConnected = ref(false)
+    this.isConnected = false  // Vue 2 使用普通布尔值
     this.messageHandlers = new Map()
     this.reconnectTimer = null
+    this._manualDisconnect = false
 
     // 默认消息处理器
     this.messageHandlers.set('step', (data) => {
@@ -28,43 +32,60 @@ export class WebSocketManager {
     this.messageHandlers.set('error', (data) => {
       console.error('Error from server:', data)
     })
+
+    this.messageHandlers.set('frame', (data) => {
+      console.debug('Frame received:', data.frame_count)
+    })
   }
 
   connect() {
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+      console.log('WebSocket already connected or connecting')
       return Promise.resolve()
     }
+
+    console.log('Attempting to connect to WebSocket:', this.url)
 
     return new Promise((resolve, reject) => {
       this.socket = new WebSocket(this.url)
 
       this.socket.onopen = () => {
-        console.log('WebSocket connected')
-        this.isConnected.value = true
+        console.log('✅ WebSocket connected successfully')
+        this.isConnected = true
         this.reconnectAttempts = 0
         resolve()
       }
 
       this.socket.onclose = (event) => {
-        console.log('WebSocket disconnected:', event)
-        this.isConnected.value = false
+        console.log('❌ WebSocket disconnected:', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean
+        })
+        this.isConnected = false
         if (!this._manualDisconnect) {
           this.handleReconnect()
         }
       }
 
       this.socket.onerror = (error) => {
-        console.error('WebSocket error:', error)
-        this.isConnected.value = false
+        console.error('❌ WebSocket error:', error)
+        this.isConnected = false
         // 不 reject，让 onclose 触发重连
       }
 
       this.socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data)
+          console.log('📨 WebSocket message received:', {
+            type: message.type,
+            hasData: !!message.data,
+            dataKeys: message.data ? Object.keys(message.data) : []
+          })
           this.handleMessage(message)
         } catch (error) {
-          console.error('Failed to parse WebSocket message:', error)
+          console.error('❌ Failed to parse WebSocket message:', error)
+          console.error('Raw message data:', event.data)
         }
       }
     })
@@ -73,6 +94,12 @@ export class WebSocketManager {
   handleMessage(message) {
     const { type, data } = message
     const handler = this.messageHandlers.get(type)
+
+    console.log('🔍 handleMessage:', {
+      type,
+      hasHandler: !!handler,
+      handlerIsDefault: handler && handler === this.messageHandlers.get('frame') && type === 'frame'
+    })
 
     if (handler) {
       handler(data)
@@ -119,26 +146,8 @@ export class WebSocketManager {
       this.socket.close()
       this.socket = null
     }
-    this.isConnected.value = false
+    this.isConnected = false
     this._manualDisconnect = false
-  }
-
-  // Vue 组合式函数
-  useWebSocket() {
-    onMounted(() => {
-      this.connect()
-    })
-
-    onBeforeUnmount(() => {
-      this.disconnect()
-    })
-
-    return {
-      isConnected: this.isConnected,
-      sendMessage: (message) => this.send(message),
-      addMessageHandler: (type, handler) => this.addMessageHandler(type, handler),
-      removeMessageHandler: (type) => this.removeMessageHandler(type)
-    }
   }
 }
 

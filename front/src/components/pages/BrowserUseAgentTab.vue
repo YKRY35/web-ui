@@ -74,11 +74,16 @@
     </el-card>
 
     <!-- 浏览器实时视图 -->
-    <el-card v-if="showBrowserView" class="browser-view-card">
+    <el-card v-show="showBrowserView" class="browser-view-card">
       <div slot="header" class="clearfix">
         <span>Browser Live View</span>
       </div>
-      <div v-html="browserView" class="browser-view"></div>
+      <browser-canvas
+        ref="browserCanvas"
+        :pixelated="true"
+        :max-width="1280"
+        :max-height="720"
+      ></browser-canvas>
     </el-card>
 
     <!-- 任务输出 -->
@@ -135,8 +140,23 @@
 </template>
 
 <script>
+import BrowserCanvas from '@/components/common/BrowserCanvas.vue'
+
 export default {
   name: 'BrowserUseAgentTab',
+  components: {
+    BrowserCanvas
+  },
+  created() {
+    // 添加 WebSocket 帧消息监听
+    this.setupWebSocketListeners()
+  },
+  beforeDestroy() {
+    // 移除监听器
+    if (this.$websocket) {
+      this.$websocket.removeMessageHandler('frame')
+    }
+  },
   data() {
     return {
       userInput: '',
@@ -147,7 +167,7 @@ export default {
       isRunning: false,
       isPaused: false,
       isWaitingForHelp: false,
-      showBrowserView: false,
+      showBrowserView: true,  // 始终显示，使用 v-show 控制可见性
       taskOutputs: false,
       currentTaskId: null,
       // 信息面板数据
@@ -182,6 +202,60 @@ export default {
       const date = new Date(timestamp)
       return date.toLocaleTimeString()
     },
+    // 设置 WebSocket 监听器
+    setupWebSocketListeners() {
+      console.log('🔧 Setting up WebSocket listeners')
+
+      // 获取 WebSocket 管理器（使用全局注册的 $websocket）
+      const wsManager = this.$websocket
+      console.log('🔧 WebSocket manager:', wsManager)
+
+      // 监听 frame 类型消息
+      const frameHandler = (data) => {
+        console.log('WebSocket frame received:', {
+          hasImage: !!data.image,
+          imageLength: data.image ? data.image.length : 0,
+          frameCount: data.frame_count,
+          showBrowserView: this.showBrowserView,
+          canvasRefExists: !!this.$refs.browserCanvas
+        })
+
+        // 确保浏览器视图已经显示
+        if (!this.showBrowserView) {
+          this.showBrowserView = true
+        }
+
+        // 获取 canvas 组件引用并更新帧
+        const canvasComponent = this.$refs.browserCanvas
+        console.log('Canvas component details:', {
+          component: canvasComponent,
+          hasUpdateFrame: canvasComponent && typeof canvasComponent.updateFrame === 'function'
+        })
+
+        if (canvasComponent && data.image) {
+          canvasComponent.updateFrame(data.image)
+        } else {
+          if (!canvasComponent) {
+            console.warn('Canvas component not found in DOM')
+          }
+          if (!data.image) {
+            console.warn('No image data in frame message')
+          }
+        }
+      }
+
+      wsManager.addMessageHandler('frame', frameHandler)
+      console.log('🔧 Frame handler added, current handlers:', Array.from(wsManager.messageHandlers.keys()))
+
+      // 监听 status 消息以响应任务状态
+      wsManager.addMessageHandler('status', (data) => {
+        if (!data.is_running) {
+          this.showBrowserView = false
+        }
+      })
+
+      console.log('🔧 WebSocket listeners setup complete')
+    },
     // 获取历史文件名
     getHistoryFileName() {
       const timestamp = new Date().toISOString().split('T')[0]
@@ -204,6 +278,7 @@ export default {
       this.isRunning = true
       this.isWaitingForHelp = false
       this.currentTaskId = Date.now().toString()
+      this.showBrowserView = true // 任务开始时立即显示浏览器视图
 
       // 初始化信息面板
       this.taskInfo.currentTask = task
@@ -275,6 +350,12 @@ export default {
     },
     // 处理清除
     async handleClear() {
+      // 清除 canvas 组件
+      const canvasComponent = this.$refs.browserCanvas
+      if (canvasComponent) {
+        canvasComponent.clear()
+      }
+
       this.userInput = ''
       this.chatHistory = []
       this.browserView = ''
