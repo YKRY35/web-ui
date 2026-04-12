@@ -31,6 +31,10 @@ class WebuiManager:
         # WebSocket 广播函数，用于实时推送步骤数据
         self.ws_broadcast_func = ws_broadcast_func
 
+        # 屏幕流 WebSocket 连接列表
+        self._screen_connections: list = []
+        self._screencast_watchdog = None
+
         # 初始化代理和浏览器
         self.init_browser_use_agent()
         self.init_deep_research_agent()
@@ -64,6 +68,38 @@ class WebuiManager:
         """
         # 暂时移除 DeepResearchAgent 支持，后续可添加
         pass
+
+    # ===== 屏幕流 WebSocket 管理 =====
+
+    async def add_screen_connection(self, websocket) -> None:
+        self._screen_connections.append(websocket)
+
+    def remove_screen_connection(self, websocket) -> None:
+        if websocket in self._screen_connections:
+            self._screen_connections.remove(websocket)
+
+    async def _broadcast_screen_frame(self, frame_bytes: bytes) -> None:
+        if not self._screen_connections:
+            return
+        disconnected = []
+        for ws in self._screen_connections:
+            try:
+                await ws.send_bytes(frame_bytes)
+            except Exception:
+                disconnected.append(ws)
+        for ws in disconnected:
+            self.remove_screen_connection(ws)
+
+    def _attach_screencast_watchdog(self) -> None:
+        if self.bu_browser_session is None:
+            return
+        from src.webui.screencast_watchdog import ScreencastWatchdog
+        self._screencast_watchdog = ScreencastWatchdog(
+            event_bus=self.bu_browser_session.event_bus,
+            browser_session=self.bu_browser_session,
+        )
+        self._screencast_watchdog._broadcast_frame = self._broadcast_screen_frame
+        self._screencast_watchdog.attach_to_session()
 
     def add_components(self, tab_name: str, components_dict: dict[str, "Component"]) -> None:
         """
@@ -186,6 +222,7 @@ class WebuiManager:
                     browser_args['user_data_dir'] = user_data_dir
 
                 self.bu_browser_session = BrowserSession(**browser_args)
+                self._attach_screencast_watchdog()
 
             if not should_keep_open or self.bu_controller is None:
                 self.bu_controller = BrowserUseController()

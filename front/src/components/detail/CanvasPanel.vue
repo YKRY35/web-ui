@@ -1,20 +1,43 @@
 <template>
   <div class="canvas-wrapper">
     <canvas ref="canvas" class="main-canvas"></canvas>
-    <div class="canvas-placeholder">Canvas</div>
+    <div v-if="!isConnected" class="canvas-placeholder">
+      {{ isConnecting ? 'Connecting...' : 'Waiting for stream...' }}
+    </div>
   </div>
 </template>
 
 <script>
+import { screencastClient } from '@/utils/screencast'
+
 export default {
   name: 'CanvasPanel',
+  data() {
+    return {
+      isConnected: false,
+      isConnecting: false,
+    }
+  },
   mounted() {
-    this.$nextTick(this.resizeCanvas)
+    this.$nextTick(() => {
+      this.resizeCanvas()
+      screencastClient.setCanvas(this.$refs.canvas)
+      screencastClient.onConnected = () => {
+        this.isConnected = true
+        this.isConnecting = false
+      }
+      screencastClient.onDisconnected = () => {
+        this.isConnected = false
+      }
+      this.isConnecting = true
+      screencastClient.connect()
+    })
     this._obs = new ResizeObserver(this.resizeCanvas)
     this._obs.observe(this.$el)
   },
   beforeDestroy() {
     if (this._obs) this._obs.disconnect()
+    screencastClient.disconnect()
   },
   methods: {
     resizeCanvas() {
@@ -22,8 +45,8 @@ export default {
       if (!c) return
       c.width = this.$el.clientWidth
       c.height = this.$el.clientHeight
-    }
-  }
+    },
+  },
 }
 </script>
 

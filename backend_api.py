@@ -688,6 +688,24 @@ async def websocket_endpoint(websocket: WebSocket):
         ws_manager.disconnect(websocket)
 
 
+@app.websocket("/ws/screen")
+async def websocket_screen_endpoint(websocket: WebSocket):
+    """
+    专用二进制 WebSocket 端点，用于实时推送浏览器画面帧。
+    发送原始 JPEG 字节（binary frames），无 JSON 包装。
+    客户端需将 binaryType 设为 'arraybuffer'。
+    """
+    await websocket.accept()
+    await webui_manager.add_screen_connection(websocket)
+    try:
+        while True:
+            await websocket.receive_bytes()  # 阻塞以检测断连，客户端无需发送数据
+    except WebSocketDisconnect:
+        webui_manager.remove_screen_connection(websocket)
+    except Exception:
+        webui_manager.remove_screen_connection(websocket)
+
+
 if __name__ == "__main__":
     import uvicorn
     # 检测是否在 PyCharm 调试模式下运行
