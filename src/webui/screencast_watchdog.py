@@ -72,8 +72,19 @@ class ScreencastWatchdog(BaseWatchdog):
 					pass
 			self._current_session_id = cdp_session.session_id
 			profile = self.browser_session.browser_profile
-			base_w = getattr(profile, 'window_size', {}).get('width', 1280) if isinstance(getattr(profile, 'window_size', None), dict) else 1280
-			base_h = getattr(profile, 'window_size', {}).get('height', 1100) if isinstance(getattr(profile, 'window_size', None), dict) else 1100
+
+			# 获取窗口大小 - 兼容字典和 ViewportSize 对象
+			window_size = getattr(profile, 'window_size', None)
+			if window_size is not None:
+				if isinstance(window_size, dict):
+					base_w = window_size.get('width', 1280)
+					base_h = window_size.get('height', 1100)
+				else:
+					# ViewportSize 对象，直接访问属性
+					base_w = getattr(window_size, 'width', 1280)
+					base_h = getattr(window_size, 'height', 1100)
+			else:
+				base_w, base_h = 1280, 1100
 
 			# 获取设备像素比并调整分辨率
 			# 在高 DPI 显示器上，需要增加 screencast 分辨率以获得清晰画质

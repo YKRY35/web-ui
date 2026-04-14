@@ -51,7 +51,7 @@ export default {
     return {
       isConnected: false,
       isConnecting: false,
-      quality: 70, // 默认质量 70%
+      quality: 100, // 默认质量 100%（最佳画质）
       fps: 0, // 当前帧率
       totalFrames: 0, // 总帧数统计
     }

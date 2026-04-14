@@ -742,36 +742,6 @@ async def websocket_screen_endpoint(websocket: WebSocket):
     except Exception:
         webui_manager.remove_screen_connection(websocket)
 
-
-@app.get("/api/diagnostic/screencast")
-async def diagnostic_screencast():
-    """
-    诊断 screencast 画质问题
-
-    返回详细的诊断信息，包括：
-    - 浏览器窗口配置
-    - 设备像素比
-    - 不同格式和质量的对比
-    - 实际渲染分辨率
-    """
-    from diagnostic_screencast import run_diagnostic_on_session
-
-    try:
-        # 获取当前浏览器会话
-        if not webui_manager.browser_session:
-            return {"error": "No active browser session"}
-
-        results = await run_diagnostic_on_session(webui_manager.browser_session)
-        return {"success": True, "results": results}
-
-    except Exception as e:
-        import traceback
-        return {
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }
-
-
 if __name__ == "__main__":
     import uvicorn
     # 检测是否在 PyCharm 调试模式下运行
