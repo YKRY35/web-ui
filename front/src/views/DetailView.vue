@@ -1,15 +1,30 @@
 <template>
   <div class="detail-view">
     <div class="top-bar">
-      <el-button
-        type="primary"
-        size="mini"
-        icon="el-icon-back"
-        @click="$router.push('/')"
-        title="Back to Home"
-      >
-        Back
-      </el-button>
+      <div class="top-bar-left">
+        <el-button
+          type="text"
+          size="mini"
+          icon="el-icon-back"
+          @click="$router.push('/')"
+          class="back-button"
+        >
+          Back
+        </el-button>
+        <el-button
+          type="text"
+          size="mini"
+          icon="el-icon-plus"
+          @click="openNewDetailPage"
+          class="new-page-button"
+        >
+          新执行页
+        </el-button>
+      </div>
+      <div class="session-info">
+        <span class="session-label">Session:</span>
+        <span class="session-id">{{ detailId || '...' }}</span>
+      </div>
     </div>
     <div class="layout-container" ref="layoutContainer"></div>
   </div>
@@ -22,13 +37,29 @@ import CanvasPanel from '@/components/detail/CanvasPanel.vue'
 import ControlPanel from '@/components/detail/ControlPanel.vue'
 import StepsPanel from '@/components/detail/StepsPanel.vue'
 import { websocketManager } from '@/utils/websocket'
+import { getOrCreateDetailID } from '@/utils/detailId'
+
+const DETAIL_ID_KEY = 'browser_use_detail_id'
 
 export default {
   name: 'DetailView',
   data() {
-    return { layout: null, websocket: websocketManager }
+    return {
+      layout: null,
+      websocket: websocketManager,
+      detailId: null
+    }
   },
-  mounted() {
+  async mounted() {
+    // 获取或创建 Detail ID
+    this.detailId = await getOrCreateDetailID()
+    console.log('[DetailView] Detail ID:', this.detailId)
+    console.log('[DetailView] Session Storage Key:', DETAIL_ID_KEY)
+    console.log('[DetailView] Session Storage Value:', sessionStorage.getItem('browser_use_detail_id'))
+
+    // 设置页面标题显示 ID
+    document.title = `Browser Use - ${this.detailId}`
+
     this.$nextTick(this.initLayout)
     // 监听窗口大小变化
     this._handleResize = () => {
@@ -46,6 +77,23 @@ export default {
     if (this.layout) this.layout.destroy()
   },
   methods: {
+    openNewDetailPage() {
+      // 打开新标签页，访问 /detail 路由
+      // 添加时间戳参数，强制新标签页生成新 ID
+      const timestamp = Date.now()
+
+      // 使用 Vue Router 生成带查询参数的 URL
+      const route = this.$router.resolve({
+        path: '/detail',
+        query: { _new_tab: timestamp }
+      })
+
+      const url = route.href
+      console.log('[DetailView] Opening new detail page:', url)
+      console.log('[DetailView] Full URL:', window.location.origin + url)
+
+      window.open(url, '_blank')
+    },
     mountComponent(Component, glContainer, extraProps) {
       const el = document.createElement('div')
       el.style.width = '100%'
@@ -115,14 +163,58 @@ export default {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  margin: 0;
+  padding: 0;
 }
 
 .top-bar {
-  padding: 0 10px;
+  height: 36px;
+  padding: 0 12px;
   background: #f5f7fa;
   border-bottom: 1px solid #e4e7ed;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  margin: 0;
+}
+
+.top-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.back-button,
+.new-page-button {
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #606266;
+}
+
+.back-button:hover,
+.new-page-button:hover {
+  color: #409eff;
+}
+
+.session-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.session-label {
+  color: #909399;
+  font-weight: 500;
+}
+
+.session-id {
+  color: #409eff;
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  background: #ecf5ff;
+  padding: 2px 8px;
+  border-radius: 3px;
 }
 
 .layout-container {
