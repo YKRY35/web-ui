@@ -30,8 +30,19 @@ export default {
   },
   mounted() {
     this.$nextTick(this.initLayout)
+    // 监听窗口大小变化
+    this._handleResize = () => {
+      if (this.layout) {
+        this.layout.updateSize()
+      }
+    }
+    window.addEventListener('resize', this._handleResize)
   },
   beforeDestroy() {
+    // 移除 resize 监听器
+    if (this._handleResize) {
+      window.removeEventListener('resize', this._handleResize)
+    }
     if (this.layout) this.layout.destroy()
   },
   methods: {
@@ -83,8 +94,8 @@ export default {
               type: 'column',
               width: 50,
               content: [
-                { type: 'component', componentType: 'control-panel', title: 'Control', height: 45 },
-                { type: 'component', componentType: 'steps-panel', title: 'Steps', height: 55 }
+                { type: 'component', componentType: 'control-panel', title: 'Control', height: 15 },
+                { type: 'component', componentType: 'steps-panel', title: 'Steps', height: 85 }
               ]
             }
           ]

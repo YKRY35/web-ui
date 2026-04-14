@@ -87,10 +87,14 @@ export class ScreencastClient {
     }
 
     this.socket.onmessage = (event) => {
-      // 如果是二进制数据（JPEG 帧）
+      // 如果是二进制数据（PNG/JPEG 帧）
       if (event.data instanceof ArrayBuffer) {
-        // event.data 是 ArrayBuffer（原始 JPEG 字节）
-        const blob = new Blob([event.data], { type: 'image/jpeg' })
+        // event.data 是 ArrayBuffer（原始图片字节）
+        // 根据文件头判断格式（PNG: 89 50 4E 47, JPEG: FF D8 FF）
+        const view = new Uint8Array(event.data, 0, 4)
+        const isPNG = view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4E && view[3] === 0x47
+        const mimeType = isPNG ? 'image/png' : 'image/jpeg'
+        const blob = new Blob([event.data], { type: mimeType })
         createImageBitmap(blob)
           .then((bitmap) => {
             // 丢弃上一帧（latest-wins 策略）

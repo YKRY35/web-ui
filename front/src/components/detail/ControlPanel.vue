@@ -36,7 +36,7 @@ export default {
   name: 'ControlPanel',
   data() {
     return {
-      userInput: '',
+      userInput: '打开百度，搜索金价。',
       isRunning: false,
       isPaused: false,
       isWaitingForHelp: false,

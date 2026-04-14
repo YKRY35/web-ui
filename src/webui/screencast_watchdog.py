@@ -96,8 +96,8 @@ class ScreencastWatchdog(BaseWatchdog):
 
 			await cdp_session.cdp_client.send.Page.startScreencast(
 				params={
-					'format': 'jpeg',
-					'quality': self._quality,  # 使用动态质量参数
+					'format': 'png',  # PNG 无损格式，画质更好但带宽更大
+					# 'quality': self._quality,  # PNG 不支持 quality 参数
 					'maxWidth': w,
 					'maxHeight': h,
 					'everyNthFrame': 1,

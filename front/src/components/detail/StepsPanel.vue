@@ -19,56 +19,119 @@
         <span>暂无步骤，提交任务后将实时显示执行过程</span>
       </div>
 
+      <!-- 大步骤容器：浅绿色背景 -->
       <div
         v-for="(step, idx) in steps"
         :key="step.id"
-        class="step-item"
+        class="step-container"
         :class="'step-type-' + step.type"
       >
-        <div class="step-num">{{ idx + 1 }}</div>
-        <div class="step-body">
-          <div class="step-meta">
-            <span v-if="step.stepNumber" class="step-seq">Step {{ step.stepNumber }}</span>
+        <!-- 步骤描述（顶部字段） -->
+        <div class="step-description">
+          <div class="step-header-row">
+            <span class="step-label">步骤 {{ idx + 1 }}</span>
             <span class="step-time">{{ formatTime(step.timestamp) }}</span>
           </div>
-
-          <!-- 用户意图（next_goal） -->
           <div v-if="step.intent" class="step-intent">
             <i class="el-icon-aim"></i> {{ step.intent }}
           </div>
+        </div>
 
-          <!-- 操作元素 XPath -->
-          <div v-if="step.xpath" class="step-xpath">
-            <span class="xpath-label">XPath:</span>
-            <code class="xpath-value">{{ step.xpath }}</code>
+        <!-- 原子操作区域：白色背景块 -->
+        <div class="atomic-operations">
+          <!-- 操作摘要 -->
+          <div v-if="step.actionSummary" class="atomic-block">
+            <div class="atomic-header">
+              <span class="atomic-label">操作</span>
+            </div>
+            <div class="atomic-content">
+              <div class="atomic-detail">
+                <span class="detail-value">{{ step.actionSummary }}</span>
+              </div>
+            </div>
           </div>
 
-          <!-- 操作摘要（最醒目） -->
-          <div v-if="step.actionSummary" class="step-action">
-            <i class="el-icon-right"></i> {{ step.actionSummary }}
+          <!-- XPath 定位信息 -->
+          <div v-if="step.xpath" class="atomic-block">
+            <div class="atomic-header">
+              <span class="atomic-label">定位</span>
+              <button
+                class="pick-button"
+                @click="handlePickXPath(step.xpath, idx)"
+                title="定位拾取"
+              >
+                <i class="el-icon-aim"></i>
+              </button>
+            </div>
+            <div class="atomic-content">
+              <div class="atomic-detail">
+                <span class="detail-label">XPath:</span>
+                <code class="detail-value monospace">{{ step.xpath }}</code>
+              </div>
+            </div>
           </div>
 
           <!-- 页面信息 -->
-          <div v-if="step.url || step.title" class="step-page">
-            <span v-if="step.title" class="page-title">{{ step.title }}</span>
-            <span v-if="step.url" class="page-url">{{ step.url }}</span>
+          <div v-if="step.url || step.title" class="atomic-block">
+            <div class="atomic-header">
+              <span class="atomic-label">页面</span>
+            </div>
+            <div class="atomic-content">
+              <div v-if="step.title" class="atomic-detail">
+                <span class="detail-label">标题:</span>
+                <span class="detail-value">{{ step.title }}</span>
+              </div>
+              <div v-if="step.url" class="atomic-detail">
+                <span class="detail-label">URL:</span>
+                <code class="detail-value monospace">{{ step.url }}</code>
+              </div>
+            </div>
           </div>
 
-          <!-- 结果 -->
-          <div v-if="step.resultText" class="step-result">{{ step.resultText }}</div>
-
-          <!-- 错误 -->
-          <div v-if="step.errors && step.errors.length > 0" class="step-errors">
-            <span v-for="(e, i) in step.errors" :key="i" class="step-error-item">{{ e }}</span>
+          <!-- 执行结果 -->
+          <div v-if="step.resultText" class="atomic-block">
+            <div class="atomic-header">
+              <span class="atomic-label">结果</span>
+              <span class="test-status" :class="getTestStatusClass(step)">
+                {{ getTestStatusText(step) }}
+              </span>
+            </div>
+            <div class="atomic-content">
+              <div class="atomic-detail">
+                <span class="detail-value success">{{ step.resultText }}</span>
+              </div>
+            </div>
           </div>
 
-          <!-- 思考/推理（可折叠） -->
-          <div v-if="step.thought" class="step-thought">
-            <el-collapse>
-              <el-collapse-item title="Agent 思考过程">
-                <div class="thought-text">{{ step.thought }}</div>
-              </el-collapse-item>
-            </el-collapse>
+          <!-- 错误信息 -->
+          <div v-if="step.errors && step.errors.length > 0" class="atomic-block error-block">
+            <div class="atomic-header">
+              <span class="atomic-label">错误</span>
+              <span class="test-status failed">失败</span>
+            </div>
+            <div class="atomic-content">
+              <div
+                v-for="(e, i) in step.errors"
+                :key="i"
+                class="atomic-detail"
+              >
+                <span class="detail-value error">{{ e }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 思考过程（可折叠） -->
+          <div v-if="step.thought" class="atomic-block thought-block">
+            <div class="atomic-header">
+              <span class="atomic-label">思考</span>
+            </div>
+            <div class="atomic-content">
+              <el-collapse>
+                <el-collapse-item title="Agent 思考过程">
+                  <div class="thought-text monospace">{{ step.thought }}</div>
+                </el-collapse-item>
+              </el-collapse>
+            </div>
           </div>
         </div>
       </div>
@@ -239,6 +302,48 @@ export default {
 
     labelOf(type) {
       return { user: '用户', agent: 'Agent', error: '错误' }[type] || type
+    },
+
+    /**
+     * 处理定位拾取按钮点击
+     * @param {string} xpath - XPath 表达式
+     * @param {number} stepIndex - 步骤索引
+     */
+    handlePickXPath(xpath, stepIndex) {
+      // 触发自定义事件，可由父组件或其他监听者处理
+      this.$emit('pick-xpath', { xpath, stepIndex })
+      // 同时触发 bus 事件，便于跨组件通信
+      bus.$emit('xpath-pick', { xpath, stepIndex })
+    },
+
+    /**
+     * 获取测试状态样式类
+     * @param {Object} step - 步骤对象
+     * @returns {string} 状态类名
+     */
+    getTestStatusClass(step) {
+      if (step.errors && step.errors.length > 0) {
+        return 'failed'
+      }
+      if (step.resultText) {
+        return 'success'
+      }
+      return 'pending'
+    },
+
+    /**
+     * 获取测试状态文本
+     * @param {Object} step - 步骤对象
+     * @returns {string} 状态文本
+     */
+    getTestStatusText(step) {
+      if (step.errors && step.errors.length > 0) {
+        return '失败'
+      }
+      if (step.resultText) {
+        return '成功'
+      }
+      return '执行中'
     }
   }
 }
@@ -287,7 +392,8 @@ export default {
 .steps-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 8px;
+  background: #f5f7fa;
 }
 
 .steps-empty {
@@ -302,154 +408,208 @@ export default {
 }
 .steps-empty i { font-size: 28px; }
 
-.step-item {
-  display: flex;
-  gap: 10px;
-  padding: 10px 12px;
-  border-bottom: 1px solid #f5f7fa;
-  transition: background 0.15s;
+/* 大步骤容器：浅绿色背景 */
+.step-container {
+  background: #d9eada;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  transition: box-shadow 0.2s;
 }
-.step-item:hover { background: #f9fafc; }
-.step-item:last-child { border-bottom: none; }
 
-.step-num {
-  min-width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #e8f4ff;
-  color: #409eff;
-  font-size: 11px;
+.step-container:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.step-container:last-child {
+  margin-bottom: 0;
+}
+
+/* 步骤描述区域 */
+.step-description {
+  margin-bottom: 10px;
+}
+
+.step-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.step-label {
+  display: inline-block;
+  background: #67c23a;
+  color: #fff;
+  font-size: 12px;
   font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-.step-type-user .step-num { background: #ecf5ff; color: #409eff; }
-.step-type-agent .step-num { background: #f0f9eb; color: #67c23a; }
-.step-type-error .step-num { background: #fef0f0; color: #f56c6c; }
-
-.step-body { flex: 1; min-width: 0; }
-
-.step-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 5px;
-  flex-wrap: wrap;
-}
-
-.step-seq {
-  font-size: 11px;
-  color: #909399;
-  background: #f5f7fa;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 .step-time {
   font-size: 11px;
-  color: #c0c4cc;
-  margin-left: auto;
+  color: #606266;
 }
-
-.step-action {
-  font-size: 13px;
-  color: #303133;
-  font-weight: 500;
-  margin-bottom: 4px;
-  line-height: 1.5;
-  word-break: break-word;
-}
-.step-action i { color: #409eff; margin-right: 3px; }
 
 .step-intent {
   font-size: 13px;
   color: #303133;
   font-weight: 600;
-  margin-bottom: 4px;
   line-height: 1.5;
   word-break: break-word;
 }
-.step-intent i { color: #409eff; margin-right: 3px; }
+.step-intent i {
+  color: #67c23a;
+  margin-right: 4px;
+}
 
-.step-xpath {
+/* 原子操作区域 */
+.atomic-operations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 原子操作块：白色背景 */
+.atomic-block {
+  background: #fff;
+  border-radius: 6px;
+  padding: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.atomic-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.atomic-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #909399;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.atomic-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.atomic-detail {
   display: flex;
   align-items: flex-start;
-  gap: 4px;
-  margin-bottom: 4px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.xpath-label {
+.detail-label {
   font-size: 11px;
   color: #909399;
   white-space: nowrap;
-  margin-top: 1px;
+  flex-shrink: 0;
 }
 
-.xpath-value {
-  font-size: 11px;
-  color: #606266;
-  background: #f5f7fa;
-  padding: 1px 5px;
-  border-radius: 3px;
-  word-break: break-all;
-  font-family: monospace;
-}
-
-.step-page {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 4px;
-}
-
-.page-title {
+.detail-value {
   font-size: 12px;
-  color: #606266;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.page-url {
-  font-size: 11px;
-  color: #909399;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.step-result {
-  font-size: 12px;
-  color: #67c23a;
-  background: #f0f9eb;
-  padding: 3px 7px;
-  border-radius: 3px;
-  margin-top: 4px;
+  color: #303133;
   word-break: break-word;
+  line-height: 1.5;
 }
 
-.step-errors {
-  margin-top: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.detail-value.success {
+  color: #67c23a;
 }
 
-.step-error-item {
-  font-size: 11px;
+.detail-value.error {
   color: #f56c6c;
-  background: #fef0f0;
+}
+
+/* 等宽字体 */
+.monospace {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  background: #f5f7fa;
   padding: 2px 6px;
   border-radius: 3px;
-  word-break: break-word;
+  font-size: 11px;
 }
 
-.step-thought {
-  margin-top: 6px;
+/* 紫色圆形定位拾取按钮 */
+.pick-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #9b59b6, #8e44ad);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(155, 89, 182, 0.3);
+}
+
+.pick-button:hover {
+  background: linear-gradient(135deg, #8e44ad, #7d3c98);
+  transform: scale(1.1);
+  box-shadow: 0 3px 6px rgba(155, 89, 182, 0.4);
+}
+
+.pick-button:active {
+  transform: scale(0.95);
+}
+
+.pick-button i {
+  font-size: 14px;
+}
+
+/* 测试执行状态标识 */
+.test-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+
+.test-status.success {
+  background: #f0f9eb;
+  color: #67c23a;
+}
+
+.test-status.failed {
+  background: #fef0f0;
+  color: #f56c6c;
+}
+
+.test-status.pending {
+  background: #fdf6ec;
+  color: #e6a23c;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* 错误块特殊样式 */
+.error-block {
+  border-left: 3px solid #f56c6c;
+}
+
+/* 思考块特殊样式 */
+.thought-block {
+  background: #fafafa;
 }
 
 .thought-text {
@@ -462,10 +622,10 @@ export default {
 }
 
 /* 覆盖 el-collapse 样式使其更紧凑 */
-.step-thought >>> .el-collapse {
+.thought-block >>> .el-collapse {
   border: none;
 }
-.step-thought >>> .el-collapse-item__header {
+.thought-block >>> .el-collapse-item__header {
   font-size: 11px;
   color: #909399;
   height: 28px;
@@ -474,11 +634,16 @@ export default {
   background: transparent;
   padding: 0;
 }
-.step-thought >>> .el-collapse-item__wrap {
+.thought-block >>> .el-collapse-item__wrap {
   border: none;
   background: transparent;
 }
-.step-thought >>> .el-collapse-item__content {
+.thought-block >>> .el-collapse-item__content {
   padding: 0;
 }
+
+/* 步骤类型样式（保留用于特殊标记） */
+.step-type-user .step-label { background: #409eff; }
+.step-type-agent .step-label { background: #67c23a; }
+.step-type-error .step-label { background: #f56c6c; }
 </style>
