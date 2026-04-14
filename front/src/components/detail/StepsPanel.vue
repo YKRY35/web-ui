@@ -39,51 +39,48 @@
 
         <!-- 原子操作区域：白色背景块 -->
         <div class="atomic-operations">
-          <!-- 操作摘要 -->
-          <div v-if="step.actionSummary" class="atomic-block">
-            <div class="atomic-header">
-              <span class="atomic-label">操作</span>
-            </div>
-            <div class="atomic-content">
-              <div class="atomic-detail">
-                <span class="detail-value">{{ step.actionSummary }}</span>
+          <!-- 循环显示多个 actions -->
+          <div v-if="step.actions && step.actions.length > 0" class="actions-container">
+            <div
+              v-for="(action, actionIdx) in step.actions"
+              :key="actionIdx"
+              class="atomic-block action-block"
+            >
+              <div class="atomic-header">
+                <span class="atomic-label">操作 {{ actionIdx + 1 }}</span>
+                <span class="action-type-tag" :class="getActionTypeClass(action.name)">
+                  {{ action.name }}
+                </span>
               </div>
-            </div>
-          </div>
-
-          <!-- XPath 定位信息 -->
-          <div v-if="step.xpath" class="atomic-block">
-            <div class="atomic-header">
-              <span class="atomic-label">定位</span>
-              <button
-                class="pick-button"
-                @click="handlePickXPath(step.xpath, idx)"
-                title="定位拾取"
-              >
-                <i class="el-icon-aim"></i>
-              </button>
-            </div>
-            <div class="atomic-content">
-              <div class="atomic-detail">
-                <span class="detail-label">XPath:</span>
-                <code class="detail-value monospace">{{ step.xpath }}</code>
-              </div>
-            </div>
-          </div>
-
-          <!-- 页面信息 -->
-          <div v-if="step.url || step.title" class="atomic-block">
-            <div class="atomic-header">
-              <span class="atomic-label">页面</span>
-            </div>
-            <div class="atomic-content">
-              <div v-if="step.title" class="atomic-detail">
-                <span class="detail-label">标题:</span>
-                <span class="detail-value">{{ step.title }}</span>
-              </div>
-              <div v-if="step.url" class="atomic-detail">
-                <span class="detail-label">URL:</span>
-                <code class="detail-value monospace">{{ step.url }}</code>
+              <div class="atomic-content">
+                <!-- 操作值 -->
+                <div v-if="Object.keys(action.params).length > 0" class="atomic-detail">
+                  <span class="detail-label">参数:</span>
+                  <div class="params-container">
+                    <div
+                      v-for="(value, key) in action.params"
+                      :key="key"
+                      class="param-item"
+                    >
+                      <span class="param-key">{{ key }}:</span>
+                      <span class="param-value">{{ formatParamValue(value) }}</span>
+                    </div>
+                  </div>
+                </div>
+                <!-- XPath 定位信息 -->
+                <div v-if="action.xpath" class="atomic-detail xpath-detail">
+                  <span class="detail-label">XPath:</span>
+                  <div class="xpath-container">
+                    <code class="detail-value monospace xpath-code">{{ action.xpath }}</code>
+                    <button
+                      class="pick-button-mini"
+                      @click="handlePickXPath(action.xpath, idx, actionIdx)"
+                      title="定位拾取"
+                    >
+                      <i class="el-icon-aim"></i>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -219,7 +216,7 @@ export default {
     _parseStepData(data) {
       if (!data) return null
 
-      const { step_number, timestamp, model_output, result, state, action_summary, next_goal, xpath } = data
+      const { step_number, timestamp, model_output, result, state, actions, next_goal } = data
 
       // 用户意图：优先用顶层 next_goal，再从 model_output 提取
       const intent = next_goal
@@ -227,23 +224,28 @@ export default {
         || (model_output && model_output.current_state && model_output.current_state.next_goal)
         || ''
 
-      // 操作摘要：优先用 action_summary，其次从 model_output 提取
-      let actionSummary = ''
-      if (action_summary) {
-        const actionName = Object.keys(action_summary).find(k => k !== 'index' && k !== 'xpath')
-        if (actionName) {
-          const val = action_summary[actionName]
-          actionSummary = `${actionName}: ${typeof val === 'string' ? val : JSON.stringify(val)}`
-        } else {
-          actionSummary = JSON.stringify(action_summary)
-        }
+      // 解析所有 actions（新格式）
+      let parsedActions = []
+      if (actions && Array.isArray(actions)) {
+        parsedActions = actions.map(action => ({
+          name: action.name,
+          params: action.params || {},
+          xpath: action.xpath || null
+        }))
       } else if (model_output && model_output.action && model_output.action.length > 0) {
-        const act = model_output.action[0]
-        const actName = Object.keys(act).find(k => k !== 'index' && k !== 'xpath')
-        if (actName) {
-          const val = act[actName]
-          actionSummary = `${actName}: ${typeof val === 'string' ? val : JSON.stringify(val)}`
-        }
+        // 兼容旧格式：从 model_output 提取
+        parsedActions = model_output.action.map(act => {
+          const actName = Object.keys(act).find(k => k !== 'index' && k !== 'xpath')
+          if (actName) {
+            const params = act[actName]
+            return {
+              name: actName,
+              params: typeof params === 'object' ? params : {},
+              xpath: null
+            }
+          }
+          return null
+        }).filter(Boolean)
       }
 
       // 思考过程
@@ -269,8 +271,7 @@ export default {
         stepNumber: step_number,
         timestamp: timestamp ? new Date(timestamp) : new Date(),
         intent,
-        xpath: xpath || '',
-        actionSummary,
+        actions: parsedActions,  // 新增：所有 actions 数组
         thought,
         resultText,
         url: state && state.url ? state.url : '',
@@ -308,12 +309,47 @@ export default {
      * 处理定位拾取按钮点击
      * @param {string} xpath - XPath 表达式
      * @param {number} stepIndex - 步骤索引
+     * @param {number} actionIndex - action 索引
      */
-    handlePickXPath(xpath, stepIndex) {
+    handlePickXPath(xpath, stepIndex, actionIndex) {
       // 触发自定义事件，可由父组件或其他监听者处理
-      this.$emit('pick-xpath', { xpath, stepIndex })
+      this.$emit('pick-xpath', { xpath, stepIndex, actionIndex })
       // 同时触发 bus 事件，便于跨组件通信
-      bus.$emit('xpath-pick', { xpath, stepIndex })
+      bus.$emit('xpath-pick', { xpath, stepIndex, actionIndex })
+    },
+
+    /**
+     * 格式化参数值
+     * @param {*} value - 参数值
+     * @returns {string} 格式化后的值
+     */
+    formatParamValue(value) {
+      if (typeof value === 'string') {
+        return value.length > 100 ? value.substring(0, 100) + '...' : value
+      }
+      if (typeof value === 'object') {
+        const str = JSON.stringify(value)
+        return str.length > 100 ? str.substring(0, 100) + '...' : str
+      }
+      return String(value)
+    },
+
+    /**
+     * 获取操作类型的样式类
+     * @param {string} actionName - 操作名称
+     * @returns {string} 样式类名
+     */
+    getActionTypeClass(actionName) {
+      const typeMap = {
+        'click': 'action-click',
+        'input': 'action-input',
+        'navigate': 'action-navigate',
+        'scroll': 'action-scroll',
+        'wait': 'action-wait',
+        'done': 'action-done',
+        'search': 'action-search'
+      }
+      return typeMap[actionName] || 'action-other'
     },
 
     /**
@@ -469,6 +505,144 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* Actions 容器 */
+.actions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 操作块样式 */
+.action-block {
+  border-left: 3px solid #409eff;
+}
+
+/* 操作类型标签 */
+.action-type-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+
+.action-type-tag.action-click {
+  background: #ecf5ff;
+  color: #409eff;
+}
+
+.action-type-tag.action-input {
+  background: #fef0f0;
+  color: #f56c6c;
+}
+
+.action-type-tag.action-navigate {
+  background: #f0f9eb;
+  color: #67c23a;
+}
+
+.action-type-tag.action-scroll {
+  background: #fdf6ec;
+  color: #e6a23c;
+}
+
+.action-type-tag.action-wait {
+  background: #f4f4f5;
+  color: #909399;
+}
+
+.action-type-tag.action-done {
+  background: #f0f9eb;
+  color: #67c23a;
+}
+
+.action-type-tag.action-search {
+  background: #ecf5ff;
+  color: #409eff;
+}
+
+.action-type-tag.action-other {
+  background: #f4f4f5;
+  color: #606266;
+}
+
+/* 参数容器 */
+.params-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.param-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.param-key {
+  color: #909399;
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.param-value {
+  color: #303133;
+  word-break: break-word;
+  flex: 1;
+}
+
+/* XPath 详情 */
+.xpath-detail {
+  margin-top: 6px;
+}
+
+.xpath-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.xpath-code {
+  flex: 1;
+  word-break: break-all;
+}
+
+/* 迷你拾取按钮 */
+.pick-button-mini {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #9b59b6, #8e44ad);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(155, 89, 182, 0.3);
+  flex-shrink: 0;
+}
+
+.pick-button-mini:hover {
+  background: linear-gradient(135deg, #8e44ad, #7d3c98);
+  transform: scale(1.1);
+  box-shadow: 0 2px 5px rgba(155, 89, 182, 0.4);
+}
+
+.pick-button-mini:active {
+  transform: scale(0.95);
+}
+
+.pick-button-mini i {
+  font-size: 12px;
 }
 
 /* 原子操作块：白色背景 */

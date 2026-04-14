@@ -274,15 +274,27 @@ class WebuiManager:
 
     def _on_agent_step(self, browser_state_summary, agent_output, step_number):
         """代理步骤回调 - 缓存步骤并通过 WebSocket 广播步骤数据"""
-        # 提取操作元素的 XPath
-        xpath = None
+        # 提取所有操作元素的 XPath
+        actions_with_xpath = []
         try:
-            if agent_output and agent_output.action:
-                index = agent_output.action[0].get_index()
-                if index is not None and hasattr(browser_state_summary, 'dom_state'):
-                    selector_map = browser_state_summary.dom_state.selector_map
-                    if selector_map and index in selector_map:
-                        xpath = selector_map[index].xpath
+            if agent_output and agent_output.action and hasattr(browser_state_summary, 'dom_state'):
+                selector_map = browser_state_summary.dom_state.selector_map
+                for action in agent_output.action:
+                    action_dict = action.model_dump(exclude_unset=True)
+                    action_name = next(iter(action_dict.keys()), None)
+                    if action_name:
+                        action_params = action_dict.get(action_name, {})
+                        if isinstance(action_params, dict):
+                            index = action_params.get('index')
+                            xpath = None
+                            if index is not None and selector_map and index in selector_map:
+                                xpath = selector_map[index].xpath
+
+                            actions_with_xpath.append({
+                                'name': action_name,
+                                'params': action_params,
+                                'xpath': xpath
+                            })
         except Exception:
             pass
 
@@ -301,7 +313,7 @@ class WebuiManager:
                 "step_number": step_number,
                 "timestamp": datetime.now().isoformat(),
                 "next_goal": next_goal,
-                "xpath": xpath,
+                "actions": actions_with_xpath,  # 新增：所有 actions 及其 xpath
                 "model_output": agent_output.model_dump() if agent_output else None,
                 "result": [r.model_dump() for r in browser_state_summary.result] if hasattr(browser_state_summary, 'result') else [],
                 "state": {
@@ -310,8 +322,7 @@ class WebuiManager:
                     "screenshot": browser_state_summary.screenshot,
                     "browser_errors": browser_state_summary.browser_errors,
                     "recent_events": browser_state_summary.recent_events
-                },
-                "action_summary": agent_output.action[0].model_dump() if agent_output and agent_output.action else None
+                }
             }
         }
 
