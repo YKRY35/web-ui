@@ -29,6 +29,7 @@ class ScreencastWatchdog(BaseWatchdog):
 
 	_broadcast_frame: Callable[[bytes], Awaitable[None]] | None = PrivateAttr(default=None)
 	_current_session_id: str | None = PrivateAttr(default=None)
+	_quality: int = PrivateAttr(default=70)
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
 		self.browser_session.cdp_client.register.Page.screencastFrame(self._on_screencast_frame)
@@ -40,6 +41,22 @@ class ScreencastWatchdog(BaseWatchdog):
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		await self._stop_screencast()
 		self._current_session_id = None
+
+	async def update_quality(self, quality: int) -> None:
+		"""动态更新投屏质量"""
+		self._quality = max(10, min(100, quality))  # 限制在 10-100 范围
+		# 如果正在投屏，重新启动以应用新质量
+		if self._current_session_id:
+			# 先清空 session_id，确保 _start_screencast 会重新启动
+			old_session_id = self._current_session_id
+			self._current_session_id = None
+			try:
+				await self.browser_session.cdp_client.send.Page.stopScreencast(
+					session_id=old_session_id
+				)
+			except Exception:
+				pass
+			await self._start_screencast()
 
 	async def _start_screencast(self) -> None:
 		try:
@@ -57,17 +74,37 @@ class ScreencastWatchdog(BaseWatchdog):
 			profile = self.browser_session.browser_profile
 			w = getattr(profile, 'window_size', {}).get('width', 1280) if isinstance(getattr(profile, 'window_size', None), dict) else 1280
 			h = getattr(profile, 'window_size', {}).get('height', 1100) if isinstance(getattr(profile, 'window_size', None), dict) else 1100
+
+			# 禁用后台优化，确保浏览器在后台时也能正常渲染
+			try:
+				await cdp_session.cdp_client.send.Emulation.setFocusEmulationEnabled(
+					params={'enabled': True},
+					session_id=cdp_session.session_id,
+				)
+				self.logger.info('ScreencastWatchdog: enabled focus emulation to prevent background throttling')
+			except Exception as e:
+				self.logger.debug(f'ScreencastWatchdog: could not enable focus emulation: {e}')
+
+			# 设置页面为始终活跃状态
+			try:
+				await cdp_session.cdp_client.send.Page.setLifecycleEventsEnabled(
+					params={'enabled': True},
+					session_id=cdp_session.session_id,
+				)
+			except Exception as e:
+				self.logger.debug(f'ScreencastWatchdog: could not enable lifecycle events: {e}')
+
 			await cdp_session.cdp_client.send.Page.startScreencast(
 				params={
 					'format': 'jpeg',
-					'quality': 70,
+					'quality': self._quality,  # 使用动态质量参数
 					'maxWidth': w,
 					'maxHeight': h,
 					'everyNthFrame': 1,
 				},
 				session_id=cdp_session.session_id,
 			)
-			self.logger.info(f'ScreencastWatchdog: started screencast on session {cdp_session.session_id}')
+			self.logger.info(f'ScreencastWatchdog: started screencast on session {cdp_session.session_id} with quality {self._quality}')
 		except Exception as e:
 			self.logger.error(f'ScreencastWatchdog: failed to start screencast: {e}')
 			self._current_session_id = None

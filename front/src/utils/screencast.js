@@ -9,6 +9,7 @@
  * - createImageBitmap：在浏览器内部 worker 异步解码 JPEG，不阻塞主线程
  * - 单槽位帧队列（latest-wins）：高帧率时自动丢弃中间帧，无内存积压
  * - bm.close()：drawImage 后立即释放 GPU 纹理内存
+ * - FPS 统计：实时计算并报告帧率
  */
 export class ScreencastClient {
   constructor(url) {
@@ -24,14 +25,35 @@ export class ScreencastClient {
     this._canvas = null
     this._ctx = null
 
+    // 帧率统计
+    this._frameCount = 0
+    this._lastFpsUpdate = 0
+    this._currentFps = 0
+    this._totalFrames = 0
+
+    // 质量控制
+    this._quality = 70
+
     // 状态回调
     this.onConnected = null
     this.onDisconnected = null
+    this.onFPSUpdate = null
+    this.onTotalFramesUpdate = null
   }
 
   setCanvas(canvasEl) {
     this._canvas = canvasEl
     this._ctx = canvasEl.getContext('2d')
+  }
+
+  setQuality(quality) {
+    this._quality = quality
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({
+        type: 'quality',
+        quality: quality
+      }))
+    }
   }
 
   connect() {
@@ -49,11 +71,13 @@ export class ScreencastClient {
     this.socket.onopen = () => {
       this.reconnectAttempts = 0
       this._startRenderLoop()
+      this._startFPSCounter()
       if (this.onConnected) this.onConnected()
     }
 
     this.socket.onclose = () => {
       this._stopRenderLoop()
+      this._stopFPSCounter()
       if (this.onDisconnected) this.onDisconnected()
       if (!this._manualDisconnect) this._scheduleReconnect()
     }
@@ -63,15 +87,56 @@ export class ScreencastClient {
     }
 
     this.socket.onmessage = (event) => {
-      // event.data 是 ArrayBuffer（原始 JPEG 字节）
-      const blob = new Blob([event.data], { type: 'image/jpeg' })
-      createImageBitmap(blob)
-        .then((bitmap) => {
-          // 丢弃上一帧（latest-wins 策略）
-          if (this._pendingBitmap) this._pendingBitmap.close()
-          this._pendingBitmap = bitmap
-        })
-        .catch(() => {}) // 忽略损坏帧
+      // 如果是二进制数据（JPEG 帧）
+      if (event.data instanceof ArrayBuffer) {
+        // event.data 是 ArrayBuffer（原始 JPEG 字节）
+        const blob = new Blob([event.data], { type: 'image/jpeg' })
+        createImageBitmap(blob)
+          .then((bitmap) => {
+            // 丢弃上一帧（latest-wins 策略）
+            if (this._pendingBitmap) this._pendingBitmap.close()
+            this._pendingBitmap = bitmap
+            this._frameCount++ // 帧计数
+            this._totalFrames++ // 总帧数统计
+            if (this.onTotalFramesUpdate) {
+              this.onTotalFramesUpdate(this._totalFrames)
+            }
+          })
+          .catch(() => {}) // 忽略损坏帧
+      }
+      // 如果是文本数据（JSON 消息，如确认消息等）
+      else if (typeof event.data === 'string') {
+        // 可以处理服务端的响应消息
+        try {
+          const msg = JSON.parse(event.data)
+          // console.log('Screencast message:', msg)
+        } catch (e) {
+          // 忽略无效 JSON
+        }
+      }
+    }
+  }
+
+  _startFPSCounter() {
+    this._lastFpsUpdate = performance.now()
+    this._frameCount = 0
+    this._totalFrames = 0
+    this._fpsIntervalId = setInterval(() => {
+      const now = performance.now()
+      const elapsed = (now - this._lastFpsUpdate) / 1000 // 秒
+      this._currentFps = Math.round(this._frameCount / elapsed)
+      this._frameCount = 0
+      this._lastFpsUpdate = now
+      if (this.onFPSUpdate) {
+        this.onFPSUpdate(this._currentFps)
+      }
+    }, 1000) // 每秒更新一次
+  }
+
+  _stopFPSCounter() {
+    if (this._fpsIntervalId) {
+      clearInterval(this._fpsIntervalId)
+      this._fpsIntervalId = null
     }
   }
 
@@ -81,7 +146,29 @@ export class ScreencastClient {
       if (this._pendingBitmap && this._ctx && this._canvas) {
         const bm = this._pendingBitmap
         this._pendingBitmap = null
-        this._ctx.drawImage(bm, 0, 0, this._canvas.width, this._canvas.height)
+
+        // 计算保持长宽比的绘制区域
+        const canvasWidth = this._canvas.width
+        const canvasHeight = this._canvas.height
+        const bitmapWidth = bm.width
+        const bitmapHeight = bm.height
+
+        // 计算缩放比例（保持长宽比）
+        const scale = Math.min(canvasWidth / bitmapWidth, canvasHeight / bitmapHeight)
+        const destWidth = bitmapWidth * scale
+        const destHeight = bitmapHeight * scale
+
+        // 计算居中偏移
+        const destX = (canvasWidth - destWidth) / 2
+        const destY = (canvasHeight - destHeight) / 2
+
+        // 先用灰色填充整个 canvas
+        this._ctx.fillStyle = '#f5f7fa'
+        this._ctx.fillRect(0, 0, canvasWidth, canvasHeight)
+
+        // 绘制图像（保持长宽比，居中显示）
+        this._ctx.drawImage(bm, destX, destY, destWidth, destHeight)
+
         bm.close() // 立即释放 GPU 纹理内存
       }
       this._rafId = requestAnimationFrame(loop)
@@ -113,6 +200,7 @@ export class ScreencastClient {
   disconnect() {
     this._manualDisconnect = true
     this._stopRenderLoop()
+    this._stopFPSCounter()
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null

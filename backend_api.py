@@ -694,12 +694,33 @@ async def websocket_screen_endpoint(websocket: WebSocket):
     专用二进制 WebSocket 端点，用于实时推送浏览器画面帧。
     发送原始 JPEG 字节（binary frames），无 JSON 包装。
     客户端需将 binaryType 设为 'arraybuffer'。
+
+    支持客户端发送 JSON 控制消息：
+    - {"type": "quality", "quality": 70} - 调整 JPEG 质量 (10-100)
     """
     await websocket.accept()
     await webui_manager.add_screen_connection(websocket)
     try:
         while True:
-            await websocket.receive_bytes()  # 阻塞以检测断连，客户端无需发送数据
+            # 接收客户端消息（文本或二进制）
+            data = await websocket.receive()
+
+            # 处理文本消息（控制命令）
+            if "text" in data:
+                try:
+                    import json
+                    msg = json.loads(data["text"])
+                    if msg.get("type") == "quality":
+                        quality = msg.get("quality", 70)
+                        # 通知 webui_manager 更新质量
+                        await webui_manager.update_screencast_quality(quality)
+                except Exception as e:
+                    print(f"Error processing screen control message: {e}")
+
+            # 如果是二进制数据（客户端不需要发送，但保持兼容）
+            elif "bytes" in data:
+                pass
+
     except WebSocketDisconnect:
         webui_manager.remove_screen_connection(websocket)
     except Exception:

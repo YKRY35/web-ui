@@ -101,6 +101,11 @@ class WebuiManager:
         self._screencast_watchdog._broadcast_frame = self._broadcast_screen_frame
         self._screencast_watchdog.attach_to_session()
 
+    async def update_screencast_quality(self, quality: int) -> None:
+        """更新投屏质量"""
+        if self._screencast_watchdog:
+            await self._screencast_watchdog.update_quality(quality)
+
     def add_components(self, tab_name: str, components_dict: dict[str, "Component"]) -> None:
         """
         Add tab components
@@ -180,10 +185,10 @@ class WebuiManager:
         self.current_agent_settings = config.get('agentSettings', {})
         self.current_browser_settings = config.get('browserSettings', {})
 
-        # 检查是否需要重置浏览器和代理（如果 keepBrowserOpen 为 False 或者组件不存在）
+        # 检查是否需要重置浏览器和代理（如果 keep_browser_open 为 False 或者组件不存在）
         should_keep_open = False
         if self.current_browser_settings:
-            should_keep_open = self.current_browser_settings.get('keepBrowserOpen', False)
+            should_keep_open = self.current_browser_settings.get('keep_browser_open', False)
 
         self.bu_agent_task_id = str(uuid.uuid4())
         self.bu_is_running = True
@@ -210,10 +215,18 @@ class WebuiManager:
                 # 构建浏览器参数
                 browser_args = {
                     'window_size': {
-                        'width': browser_config.get('windowWidth', 1280),
-                        'height': browser_config.get('windowHeight', 1100)
+                        'width': browser_config.get('window_width', 1280),
+                        'height': browser_config.get('window_height', 1100)
                     },
-                    'headless': not browser_config.get('keepBrowserOpen', True),
+                    'headless': not browser_config.get('keep_browser_open', True),
+                    # 添加 Chrome 启动参数，禁用后台优化
+                    'args': [
+                        '--disable-background-timer-throttling',  # 禁用后台定时器节流
+                        '--disable-backgrounding-occluded-windows',  # 禁用被遮挡窗口的后台化
+                        '--disable-renderer-backgrounding',  # 禁用渲染器后台化
+                        '--disable-features=CalculateNativeWinOcclusion',  # 禁用原生窗口遮挡计算
+                        '--enable-features=NetworkService,NetworkServiceInProcess',  # 启用网络服务进程
+                    ],
                 }
 
                 # 只有当 user_data_dir 不为空时才添加
@@ -388,7 +401,7 @@ class WebuiManager:
         # 检查是否应该保持浏览器开启
         should_keep_open = False
         if self.current_browser_settings:
-            should_keep_open = self.current_browser_settings.get('keepBrowserOpen', False)
+            should_keep_open = self.current_browser_settings.get('keep_browser_open', False)
 
         if self.bu_agent and self.bu_is_running:
             # 调用 browser-use 的 stop 方法

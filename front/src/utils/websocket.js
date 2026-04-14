@@ -1,4 +1,4 @@
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import Vue from 'vue'
 
 export class WebSocketManager {
   constructor(url) {
@@ -8,7 +8,10 @@ export class WebSocketManager {
     this.maxReconnectAttempts = Infinity  // 无限重连
     this.reconnectDelay = 1000
     this.reconnectDelayMax = 30000  // 最大重连间隔 30s
-    this.isConnected = ref(false)
+    // 使用 Vue.observable 创建响应式对象（Vue 2.6+）
+    this.state = Vue.observable({
+      isConnected: false
+    })
     this.messageHandlers = new Map()
     this.reconnectTimer = null
 
@@ -30,6 +33,11 @@ export class WebSocketManager {
     })
   }
 
+  // 兼容性 getter
+  get isConnected() {
+    return this.state.isConnected
+  }
+
   connect() {
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return Promise.resolve()
@@ -40,14 +48,14 @@ export class WebSocketManager {
 
       this.socket.onopen = () => {
         console.log('WebSocket connected')
-        this.isConnected.value = true
+        this.state.isConnected = true
         this.reconnectAttempts = 0
         resolve()
       }
 
       this.socket.onclose = (event) => {
         console.log('WebSocket disconnected:', event)
-        this.isConnected.value = false
+        this.state.isConnected = false
         if (!this._manualDisconnect) {
           this.handleReconnect()
         }
@@ -55,7 +63,7 @@ export class WebSocketManager {
 
       this.socket.onerror = (error) => {
         console.error('WebSocket error:', error)
-        this.isConnected.value = false
+        this.state.isConnected = false
         // 不 reject，让 onclose 触发重连
       }
 
@@ -119,22 +127,17 @@ export class WebSocketManager {
       this.socket.close()
       this.socket = null
     }
-    this.isConnected.value = false
+    this.state.isConnected = false
     this._manualDisconnect = false
   }
 
   // Vue 组合式函数
   useWebSocket() {
-    onMounted(() => {
-      this.connect()
-    })
-
-    onBeforeUnmount(() => {
-      this.disconnect()
-    })
+    // Vue 2 不支持 onMounted/onBeforeUnmount 的导入，这里简化处理
+    this.connect()
 
     return {
-      isConnected: this.isConnected,
+      isConnected: this.state.isConnected,
       sendMessage: (message) => this.send(message),
       addMessageHandler: (type, handler) => this.addMessageHandler(type, handler),
       removeMessageHandler: (type) => this.removeMessageHandler(type)
