@@ -93,6 +93,11 @@ export default {
       if (!container) return
       c.width = container.clientWidth
       c.height = container.clientHeight
+
+      // resize 后重新绘制缓存的最后一帧，避免白屏
+      if (this.isConnected) {
+        screencastClient.redrawLastFrame()
+      }
     },
     handleQualityChange(value) {
       this.quality = value

@@ -215,10 +215,11 @@ class WebuiManager:
                 # 构建浏览器参数
                 browser_args = {
                     'window_size': {
-                        'width': browser_config.get('window_width', 1280),
-                        'height': browser_config.get('window_height', 1100)
+                        'width': browser_config.get('window_w', 1280),
+                        'height': browser_config.get('window_h', 1100)
                     },
-                    'headless': not browser_config.get('keep_browser_open', True),
+                    'headless': browser_config.get('headless', False),  # headless 独立控制，不与 keep_browser_open 混淆
+                    'keep_alive': should_keep_open,  # 关键：设置 keep_alive 让 browser-use 库知道是否保持浏览器打开
                     # 添加 Chrome 启动参数，禁用后台优化
                     'args': [
                         '--disable-background-timer-throttling',  # 禁用后台定时器节流
@@ -385,14 +386,30 @@ class WebuiManager:
         try:
             await self.bu_agent.run(max_steps=100)  # 使用 browser-use 的 run 方法
         except asyncio.CancelledError:
-            self.logger.info('Agent task was cancelled')
+            print('Agent task was cancelled')
             # 重新抛出 CancelledError 以便调用者知道任务被取消
             raise
         except Exception as e:
             print(f"Agent run error: {e}")
         finally:
             self.bu_is_running = False
-            # 不要在这里立即设置 bu_current_task 为 None，让调用者处理
+
+            # 检查是否应该在任务完成后关闭浏览器
+            should_keep_open = False
+            if self.current_browser_settings:
+                should_keep_open = self.current_browser_settings.get('keep_browser_open', False)
+
+            if not should_keep_open:
+                # 关闭浏览器会话
+                if self.bu_browser_session is not None:
+                    try:
+                        await self.bu_browser_session.close()
+                    except Exception as e:
+                        print(f"Error closing browser session: {e}")
+                    self.bu_browser_session = None
+                # 重置代理和控制器，确保下次运行时重新初始化
+                self.bu_agent = None
+                self.bu_controller = None
 
     async def stop_browser_use_agent(self) -> None:
         """
@@ -424,11 +441,18 @@ class WebuiManager:
         self.bu_is_paused = False
         self.bu_is_waiting_for_help = False
 
-        # 重要：重置代理和相关组件，以便下次运行可以重新初始化
+        # 总是重置代理，确保下次运行时创建新实例
+        self.bu_agent = None
+        self.bu_controller = None
+
+        # 仅当 keep_browser_open=False 时关闭浏览器会话
         if not should_keep_open:
-            self.bu_agent = None
-            self.bu_controller = None
-            self.bu_browser_session = None
+            if self.bu_browser_session is not None:
+                try:
+                    await self.bu_browser_session.close()
+                except Exception as e:
+                    print(f"Error closing browser session: {e}")
+                self.bu_browser_session = None
 
     async def pause_browser_use_agent(self) -> None:
         """

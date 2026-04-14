@@ -72,8 +72,22 @@ class ScreencastWatchdog(BaseWatchdog):
 					pass
 			self._current_session_id = cdp_session.session_id
 			profile = self.browser_session.browser_profile
-			w = getattr(profile, 'window_size', {}).get('width', 1280) if isinstance(getattr(profile, 'window_size', None), dict) else 1280
-			h = getattr(profile, 'window_size', {}).get('height', 1100) if isinstance(getattr(profile, 'window_size', None), dict) else 1100
+			base_w = getattr(profile, 'window_size', {}).get('width', 1280) if isinstance(getattr(profile, 'window_size', None), dict) else 1280
+			base_h = getattr(profile, 'window_size', {}).get('height', 1100) if isinstance(getattr(profile, 'window_size', None), dict) else 1100
+
+			# 获取设备像素比并调整分辨率
+			# 在高 DPI 显示器上，需要增加 screencast 分辨率以获得清晰画质
+			try:
+				result = await cdp_session.cdp_client.send.Page.getDeviceScaleFactor(
+					session_id=cdp_session.session_id
+				)
+				device_scale_factor = result.get('scaleFactor', 1)
+				w = int(base_w * device_scale_factor)
+				h = int(base_h * device_scale_factor)
+				self.logger.info(f'ScreencastWatchdog: device scale factor {device_scale_factor}, adjusted resolution {w}x{h}')
+			except Exception as e:
+				self.logger.debug(f'ScreencastWatchdog: could not get device scale factor: {e}')
+				w, h = base_w, base_h
 
 			# 禁用后台优化，确保浏览器在后台时也能正常渲染
 			try:
@@ -96,8 +110,8 @@ class ScreencastWatchdog(BaseWatchdog):
 
 			await cdp_session.cdp_client.send.Page.startScreencast(
 				params={
-					'format': 'png',  # PNG 无损格式，画质更好但带宽更大
-					# 'quality': self._quality,  # PNG 不支持 quality 参数
+					'format': 'jpeg',
+					'quality': self._quality,  # JPEG 支持 quality 参数 (10-100)
 					'maxWidth': w,
 					'maxHeight': h,
 					'everyNthFrame': 1,

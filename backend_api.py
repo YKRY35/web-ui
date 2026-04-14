@@ -154,6 +154,21 @@ def convert_dict_keys(data, converter):
         return data
 
 
+def normalize_browser_settings(settings: dict) -> dict:
+    """
+    标准化浏览器设置字段名，处理特殊字段映射
+    """
+    normalized = settings.copy()
+
+    # 处理窗口大小字段的多种命名方式
+    if 'window_height' in normalized:
+        normalized['window_h'] = normalized.pop('window_height')
+    if 'window_width' in normalized:
+        normalized['window_w'] = normalized.pop('window_width')
+
+    return normalized
+
+
 # ===== 配置管理 =====
 
 class ConfigSaveResponse(BaseModel):
@@ -482,14 +497,15 @@ async def run_agent(data: BrowserUseAgentRequest):
         agent_settings = await get_agent_settings()
         browser_settings = await get_browser_settings()
 
-        config = {
-            "agentSettings": convert_dict_keys(agent_settings.get("settings", {}), camel_to_snake),
-            "browserSettings": convert_dict_keys(browser_settings.get("settings", {}), camel_to_snake)
-        }
+        # 转换键名并标准化浏览器设置
+        agent_settings_converted = convert_dict_keys(agent_settings.get("settings", {}), camel_to_snake)
+        browser_settings_converted = convert_dict_keys(browser_settings.get("settings", {}), camel_to_snake)
+        browser_settings_normalized = normalize_browser_settings(browser_settings_converted)
 
-        print(f"DEBUG: Running agent with config:")
-        print(f"  agentSettings: {config['agentSettings']}")
-        print(f"  browserSettings: {config['browserSettings']}")
+        config = {
+            "agentSettings": agent_settings_converted,
+            "browserSettings": browser_settings_normalized
+        }
 
         # 将配置传递给 webui_manager
         webui_manager.current_agent_settings = config['agentSettings']
@@ -725,6 +741,35 @@ async def websocket_screen_endpoint(websocket: WebSocket):
         webui_manager.remove_screen_connection(websocket)
     except Exception:
         webui_manager.remove_screen_connection(websocket)
+
+
+@app.get("/api/diagnostic/screencast")
+async def diagnostic_screencast():
+    """
+    诊断 screencast 画质问题
+
+    返回详细的诊断信息，包括：
+    - 浏览器窗口配置
+    - 设备像素比
+    - 不同格式和质量的对比
+    - 实际渲染分辨率
+    """
+    from diagnostic_screencast import run_diagnostic_on_session
+
+    try:
+        # 获取当前浏览器会话
+        if not webui_manager.browser_session:
+            return {"error": "No active browser session"}
+
+        results = await run_diagnostic_on_session(webui_manager.browser_session)
+        return {"success": True, "results": results}
+
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 
 if __name__ == "__main__":

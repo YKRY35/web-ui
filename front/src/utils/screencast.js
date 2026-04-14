@@ -25,6 +25,10 @@ export class ScreencastClient {
     this._canvas = null
     this._ctx = null
 
+    // 缓存最后一帧，用于 resize 时重新绘制
+    this._lastBitmap = null
+    this._lastBitmapData = null // 保存 bitmap 的原始数据，用于重建
+
     // 帧率统计
     this._frameCount = 0
     this._lastFpsUpdate = 0
@@ -147,37 +151,67 @@ export class ScreencastClient {
   _startRenderLoop() {
     if (this._rafId !== null) return
     const loop = () => {
+      // 如果有新帧，更新缓存并绘制
       if (this._pendingBitmap && this._ctx && this._canvas) {
         const bm = this._pendingBitmap
         this._pendingBitmap = null
 
-        // 计算保持长宽比的绘制区域
-        const canvasWidth = this._canvas.width
-        const canvasHeight = this._canvas.height
-        const bitmapWidth = bm.width
-        const bitmapHeight = bm.height
+        // 释放旧的缓存帧
+        if (this._lastBitmap) {
+          this._lastBitmap.close()
+        }
 
-        // 计算缩放比例（保持长宽比）
-        const scale = Math.min(canvasWidth / bitmapWidth, canvasHeight / bitmapHeight)
-        const destWidth = bitmapWidth * scale
-        const destHeight = bitmapHeight * scale
+        // 缓存当前帧（创建副本）
+        this._lastBitmap = bm
 
-        // 计算居中偏移
-        const destX = (canvasWidth - destWidth) / 2
-        const destY = (canvasHeight - destHeight) / 2
-
-        // 先用灰色填充整个 canvas
-        this._ctx.fillStyle = '#f5f7fa'
-        this._ctx.fillRect(0, 0, canvasWidth, canvasHeight)
-
-        // 绘制图像（保持长宽比，居中显示）
-        this._ctx.drawImage(bm, destX, destY, destWidth, destHeight)
-
-        bm.close() // 立即释放 GPU 纹理内存
+        // 绘制当前帧
+        this._drawBitmap(bm)
       }
+      // 如果没有新帧但有缓存的帧，保持显示（不重绘）
+      // 这样可以避免白屏
+
       this._rafId = requestAnimationFrame(loop)
     }
     this._rafId = requestAnimationFrame(loop)
+  }
+
+  /**
+   * 绘制 bitmap 到 canvas
+   * @param {ImageBitmap} bm - 要绘制的 bitmap
+   */
+  _drawBitmap(bm) {
+    if (!bm || !this._ctx || !this._canvas) return
+
+    // 计算保持长宽比的绘制区域
+    const canvasWidth = this._canvas.width
+    const canvasHeight = this._canvas.height
+    const bitmapWidth = bm.width
+    const bitmapHeight = bm.height
+
+    // 计算缩放比例（保持长宽比）
+    const scale = Math.min(canvasWidth / bitmapWidth, canvasHeight / bitmapHeight)
+    const destWidth = bitmapWidth * scale
+    const destHeight = bitmapHeight * scale
+
+    // 计算居中偏移
+    const destX = (canvasWidth - destWidth) / 2
+    const destY = (canvasHeight - destHeight) / 2
+
+    // 先用灰色填充整个 canvas
+    this._ctx.fillStyle = '#f5f7fa'
+    this._ctx.fillRect(0, 0, canvasWidth, canvasHeight)
+
+    // 绘制图像（保持长宽比，居中显示）
+    this._ctx.drawImage(bm, destX, destY, destWidth, destHeight)
+  }
+
+  /**
+   * 重新绘制缓存的最后一帧（用于 resize）
+   */
+  redrawLastFrame() {
+    if (this._lastBitmap && this._ctx && this._canvas) {
+      this._drawBitmap(this._lastBitmap)
+    }
   }
 
   _stopRenderLoop() {
@@ -188,6 +222,11 @@ export class ScreencastClient {
     if (this._pendingBitmap) {
       this._pendingBitmap.close()
       this._pendingBitmap = null
+    }
+    // 清理缓存的最后一帧
+    if (this._lastBitmap) {
+      this._lastBitmap.close()
+      this._lastBitmap = null
     }
   }
 

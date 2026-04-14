@@ -3,7 +3,7 @@
     <div class="top-bar">
       <el-button
         type="primary"
-        size="small"
+        size="mini"
         icon="el-icon-back"
         @click="$router.push('/')"
         title="Back to Home"
@@ -118,7 +118,7 @@ export default {
 }
 
 .top-bar {
-  padding: 10px;
+  padding: 0 10px;
   background: #f5f7fa;
   border-bottom: 1px solid #e4e7ed;
   display: flex;
