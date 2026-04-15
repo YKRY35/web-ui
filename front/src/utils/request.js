@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { getCurrentSessionId } from './sessionId'
 
 // 创建axios实例
 const request = axios.create({
@@ -9,6 +10,11 @@ const request = axios.create({
 // 请求拦截器
 request.interceptors.request.use(
   config => {
+    // 添加 sessionId 到请求头
+    const sessionId = getCurrentSessionId()
+    if (sessionId) {
+      config.headers['X-Session-ID'] = sessionId
+    }
     return config
   },
   error => {

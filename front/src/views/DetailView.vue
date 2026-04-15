@@ -33,7 +33,7 @@
         </el-button>
         <div class="session-info">
           <span class="session-label">Session:</span>
-          <span class="session-id">{{ detailId || '...' }}</span>
+          <span class="session-id">{{ sessionId || '...' }}</span>
         </div>
       </div>
     </div>
@@ -56,9 +56,9 @@ import StepsPanel from '@/components/detail/StepsPanel.vue'
 import LogPanel from '@/components/detail/LogPanel.vue'
 import SettingsDialog from '@/components/common/SettingsDialog.vue'
 import { websocketManager } from '@/utils/websocket'
-import { getOrCreateDetailID } from '@/utils/detailId'
+import { getOrCreateSessionId } from '@/utils/sessionId'
 
-const DETAIL_ID_KEY = 'browser_use_detail_id'
+const SESSION_ID_KEY = 'browser_use_session_id'
 
 export default {
   name: 'DetailView',
@@ -69,7 +69,7 @@ export default {
     return {
       layout: null,
       websocket: websocketManager,
-      detailId: null,
+      sessionId: null,
       showSettingsDialog: false,
       themeSettings: { theme: 'light' }
     }
@@ -79,14 +79,14 @@ export default {
     this.loadThemeSettings()
   },
   async mounted() {
-    // 获取或创建 Detail ID
-    this.detailId = await getOrCreateDetailID()
-    console.log('[DetailView] Detail ID:', this.detailId)
-    console.log('[DetailView] Session Storage Key:', DETAIL_ID_KEY)
-    console.log('[DetailView] Session Storage Value:', sessionStorage.getItem('browser_use_detail_id'))
+    // 获取或创建 Session ID
+    this.sessionId = await getOrCreateSessionId()
+    console.log('[DetailView] Session ID:', this.sessionId)
+    console.log('[DetailView] Session Storage Key:', SESSION_ID_KEY)
+    console.log('[DetailView] Session Storage Value:', sessionStorage.getItem('browser_use_session_id'))
 
     // 设置页面标题显示 ID
-    document.title = `Browser Use - ${this.detailId}`
+    document.title = `Browser Use - ${this.sessionId}`
 
     this.$nextTick(this.initLayout)
     // 监听窗口大小变化

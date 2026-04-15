@@ -24,17 +24,23 @@ from src.webui.browser_use_compat import BrowserState, AgentHistoryList, AgentOu
 
 
 class WebuiManager:
-    def __init__(self, settings_save_dir: str = "./tmp/webui_settings", ws_broadcast_func=None):
+    def __init__(self, settings_save_dir: str = "./tmp/webui_settings", ws_broadcast_func=None, screen_broadcast_func=None, session_id: Optional[str] = None):
         self.id_to_component: dict[str, "Component"] = {}
         self.component_to_id: dict["Component", str] = {}
 
         self.settings_save_dir = settings_save_dir
         os.makedirs(self.settings_save_dir, exist_ok=True)
 
+        # 会话ID，用于标识会话级资源
+        self.session_id = session_id
+
         # WebSocket 广播函数，用于实时推送步骤数据
         self.ws_broadcast_func = ws_broadcast_func
 
-        # 屏幕流 WebSocket 连接列表
+        # 屏幕流广播函数，用于推送浏览器画面帧
+        self.screen_broadcast_func = screen_broadcast_func
+
+        # 屏幕流 WebSocket 连接列表（已废弃，使用 screen_broadcast_func）
         self._screen_connections: list = []
         self._screencast_watchdog = None
 
@@ -81,23 +87,30 @@ class WebuiManager:
     # ===== 屏幕流 WebSocket 管理 =====
 
     async def add_screen_connection(self, websocket) -> None:
-        self._screen_connections.append(websocket)
+        """已废弃：屏幕流连接现在由 Session 管理"""
+        pass
 
     def remove_screen_connection(self, websocket) -> None:
-        if websocket in self._screen_connections:
-            self._screen_connections.remove(websocket)
+        """已废弃：屏幕流连接现在由 Session 管理"""
+        pass
 
     async def _broadcast_screen_frame(self, frame_bytes: bytes) -> None:
-        if not self._screen_connections:
-            return
-        disconnected = []
-        for ws in self._screen_connections:
-            try:
-                await ws.send_bytes(frame_bytes)
-            except Exception:
-                disconnected.append(ws)
-        for ws in disconnected:
-            self.remove_screen_connection(ws)
+        """广播屏幕帧数据到所有连接的客户端"""
+        if self.screen_broadcast_func:
+            # 使用 Session 提供的广播函数
+            await self.screen_broadcast_func(frame_bytes)
+        else:
+            # 向后兼容：如果没有提供广播函数，使用旧的 _screen_connections
+            if not self._screen_connections:
+                return
+            disconnected = []
+            for ws in self._screen_connections:
+                try:
+                    await ws.send_bytes(frame_bytes)
+                except Exception:
+                    disconnected.append(ws)
+            for ws in disconnected:
+                self.remove_screen_connection(ws)
 
     def _attach_screencast_watchdog(self) -> None:
         if self.bu_browser_session is None:

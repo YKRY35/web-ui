@@ -10,15 +10,20 @@ import glob
 
 import json
 import tempfile
+import asyncio
 from datetime import datetime
 from typing import Optional
-from fastapi import FastAPI, File, UploadFile, Form, WebSocket, WebSocketDisconnect
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, File, UploadFile, Form, WebSocket, WebSocketDisconnect, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 import logging
 
 from src.webui.webui_manager import WebuiManager
 from src.webui.log_handler import WebSocketLogHandler
+from src.webui.session_manager import session_manager
+from src.webui.session import Session
 from src.utils import config
 
 
@@ -50,6 +55,61 @@ class ConnectionManager:
 
 ws_manager = ConnectionManager()
 
+
+# ===== Session 中间件和依赖注入 =====
+
+class SessionMiddleware(BaseHTTPMiddleware):
+    """从请求中提取 sessionId"""
+
+    async def dispatch(self, request, call_next):
+        # 从请求头获取 sessionId
+        session_id = request.headers.get("X-Session-ID")
+        # 也支持从查询参数获取（某些场景可能需要）
+        if not session_id:
+            session_id = request.query_params.get("sessionId")
+
+        # 存储到 request.state
+        request.state.session_id = session_id
+
+        response = await call_next(request)
+        return response
+
+
+async def get_current_session(request: Request) -> Session:
+    """
+    依赖注入：获取当前会话
+
+    如果请求中没有 sessionId，返回 400 错误
+    如果会话不存在，自动创建
+    """
+    session_id = request.state.session_id
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Session ID is required (X-Session-ID header)")
+
+    session = await session_manager.get_or_create_session(session_id)
+    return session
+
+
+# ===== 应用生命周期管理 =====
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理：启动和关闭时的操作"""
+    # 启动时
+    logging.info("Starting application...")
+    await session_manager.start_cleanup_task()
+    logging.info("Session cleanup task started")
+
+    yield
+
+    # 关闭时
+    logging.info("Shutting down application...")
+    await session_manager.stop_cleanup_task()
+    await session_manager.cleanup_all_sessions()
+    logging.info("All sessions cleaned up")
+
+
 #
 #import pydevd_pycharm
 #pydevd_pycharm.settrace('localhost', port=12321, stdoutToServer=True, stderrToServer=True)
@@ -59,8 +119,12 @@ app = FastAPI(
     version="1.0.0",
     openapi_url=None,       # 禁用 OpenAPI 规范生成
     docs_url=None,          # 禁用 Swagger UI
-    redoc_url=None          # 禁用 ReDoc
+    redoc_url=None,         # 禁用 ReDoc
+    lifespan=lifespan       # 应用生命周期管理
 )
+
+# 添加 Session 中间件（必须在其他中间件之前）
+app.add_middleware(SessionMiddleware)
 
 # 允许跨域请求
 app.add_middleware(
@@ -71,11 +135,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 初始化 WebuiManager
-webui_manager = WebuiManager(ws_broadcast_func=ws_manager.broadcast)
-
 # 配置 WebSocket 日志处理器
-ws_log_handler = WebSocketLogHandler(webui_manager)
+ws_log_handler = WebSocketLogHandler(session_manager)
 ws_log_handler.setLevel(logging.DEBUG)
 # 使用简洁的日志格式
 ws_log_handler.setFormatter(logging.Formatter('%(levelname)s [%(name)s] %(message)s'))
@@ -421,10 +482,6 @@ async def update_agent_settings(settings: dict):
         agent_settings = AgentSettings(**converted_settings)
         current_agent_settings = agent_settings.model_dump()
 
-        # 同时更新 webui_manager 的配置
-        if hasattr(webui_manager, 'current_agent_settings'):
-            webui_manager.current_agent_settings = current_agent_settings
-
         # 返回转换为驼峰格式的数据
         return {
             "success": True,
@@ -491,10 +548,6 @@ async def update_browser_settings(settings: dict):
         browser_settings = BrowserSettings(**converted_settings)
         current_browser_settings = browser_settings.model_dump()
 
-        # 同时更新 webui_manager 的配置
-        if hasattr(webui_manager, 'current_browser_settings'):
-            webui_manager.current_browser_settings = current_browser_settings
-
         # 返回转换为驼峰格式的数据
         return {
             "success": True,
@@ -514,11 +567,11 @@ class BrowserUseAgentRequest(BaseModel):
     task: str
 
 @app.post("/api/agent/run")
-async def run_agent(data: BrowserUseAgentRequest):
+async def run_agent(data: BrowserUseAgentRequest, session: Session = Depends(get_current_session)):
     """运行代理"""
     try:
         # 发送启动日志
-        logging.info(f"[Agent] Starting agent with task: {data.task}")
+        logging.info(f"[Agent] Starting agent with task: {data.task} (session: {session.session_id})")
 
         # 获取当前配置 - 这里 get_agent_settings 已经返回了下划线格式
         agent_settings = await get_agent_settings()
@@ -534,19 +587,20 @@ async def run_agent(data: BrowserUseAgentRequest):
             "browserSettings": browser_settings_normalized
         }
 
-        # 将配置传递给 webui_manager
-        webui_manager.current_agent_settings = config['agentSettings']
-        webui_manager.current_browser_settings = config['browserSettings']
+        # 将配置传递给会话级 webui_manager
+        session.manager.current_agent_settings = config['agentSettings']
+        session.manager.current_browser_settings = config['browserSettings']
 
         # 运行代理任务
-        task_id = await webui_manager.run_browser_use_agent(data.task, config)
+        task_id = await session.manager.run_browser_use_agent(data.task, config)
 
         logging.info(f"[Agent] Agent started successfully with task_id: {task_id}")
 
         return {
             "success": True,
             "task_id": task_id,
-            "message": "Agent started successfully"
+            "message": "Agent started successfully",
+            "session_id": session.session_id
         }
     except Exception as e:
         logging.error(f"[Agent] Failed to start agent: {str(e)}")
@@ -556,13 +610,14 @@ async def run_agent(data: BrowserUseAgentRequest):
         }
 
 @app.post("/api/agent/stop")
-async def stop_agent(task_id: str = Form(...)):
+async def stop_agent(task_id: str = Form(...), session: Session = Depends(get_current_session)):
     """停止代理"""
     try:
-        await webui_manager.stop_browser_use_agent()
+        await session.manager.stop_browser_use_agent()
         return {
             "success": True,
-            "message": "Agent stopped successfully"
+            "message": "Agent stopped successfully",
+            "session_id": session.session_id
         }
     except Exception as e:
         return {
@@ -571,13 +626,14 @@ async def stop_agent(task_id: str = Form(...)):
         }
 
 @app.post("/api/agent/pause")
-async def pause_agent(task_id: str = Form(...)):
+async def pause_agent(task_id: str = Form(...), session: Session = Depends(get_current_session)):
     """暂停代理"""
     try:
-        await webui_manager.pause_browser_use_agent()
+        await session.manager.pause_browser_use_agent()
         return {
             "success": True,
-            "message": "Agent paused"
+            "message": "Agent paused",
+            "session_id": session.session_id
         }
     except Exception as e:
         return {
@@ -586,13 +642,14 @@ async def pause_agent(task_id: str = Form(...)):
         }
 
 @app.post("/api/agent/resume")
-async def resume_agent(task_id: str = Form(...)):
+async def resume_agent(task_id: str = Form(...), session: Session = Depends(get_current_session)):
     """恢复代理"""
     try:
-        await webui_manager.resume_browser_use_agent()
+        await session.manager.resume_browser_use_agent()
         return {
             "success": True,
-            "message": "Agent resumed"
+            "message": "Agent resumed",
+            "session_id": session.session_id
         }
     except Exception as e:
         return {
@@ -601,10 +658,11 @@ async def resume_agent(task_id: str = Form(...)):
         }
 
 @app.get("/api/agent/status")
-async def get_agent_status(task_id: str):
+async def get_agent_status(task_id: str, session: Session = Depends(get_current_session)):
     """获取代理状态"""
     try:
-        status = await webui_manager.get_browser_use_agent_status(task_id)
+        status = await session.manager.get_browser_use_agent_status(task_id)
+        status["session_id"] = session.session_id
         return status
     except Exception as e:
         return {
@@ -613,12 +671,14 @@ async def get_agent_status(task_id: str):
         }
 
 @app.post("/api/agent/respond")
-async def respond_to_agent(task_id: str = Form(...), message: str = Form(...)):
+async def respond_to_agent(task_id: str = Form(...), message: str = Form(...), session: Session = Depends(get_current_session)):
     """发送用户响应"""
     try:
+        # TODO: 实现 respond_to_agent 功能
         return {
             "success": True,
-            "message": "Response received"
+            "message": "Response received",
+            "session_id": session.session_id
         }
     except Exception as e:
         return {
@@ -635,14 +695,15 @@ class DeepResearchRequest(BaseModel):
     save_dir: Optional[str] = "./tmp/deep_research"
 
 @app.post("/api/deep-research/run")
-async def run_deep_research(data: DeepResearchRequest):
+async def run_deep_research(data: DeepResearchRequest, session: Session = Depends(get_current_session)):
     """运行深度研究"""
     try:
         task_id = datetime.now().strftime("%Y%m%d%H%M%S")
         return {
             "success": True,
             "task_id": task_id,
-            "message": "Deep research started"
+            "message": "Deep research started",
+            "session_id": session.session_id
         }
     except Exception as e:
         return {
@@ -651,12 +712,13 @@ async def run_deep_research(data: DeepResearchRequest):
         }
 
 @app.post("/api/deep-research/stop")
-async def stop_deep_research(task_id: str = Form(...)):
+async def stop_deep_research(task_id: str = Form(...), session: Session = Depends(get_current_session)):
     """停止深度研究"""
     try:
         return {
             "success": True,
-            "message": "Deep research stopped"
+            "message": "Deep research stopped",
+            "session_id": session.session_id
         }
     except Exception as e:
         return {
@@ -665,7 +727,7 @@ async def stop_deep_research(task_id: str = Form(...)):
         }
 
 @app.get("/api/deep-research/report")
-async def get_deep_research_report(task_id: str):
+async def get_deep_research_report(task_id: str, session: Session = Depends(get_current_session)):
     """获取研究报告"""
     try:
         report_content = "# Research Report\n\nThis is a placeholder report."
@@ -673,7 +735,8 @@ async def get_deep_research_report(task_id: str):
             "success": True,
             "task_id": task_id,
             "report": report_content,
-            "file_path": f"/tmp/{task_id}_report.md"
+            "file_path": f"/tmp/{task_id}_report.md",
+            "session_id": session.session_id
         }
     except Exception as e:
         return {
@@ -685,36 +748,39 @@ async def get_deep_research_report(task_id: str):
 # ===== 步骤历史查询接口 =====
 
 @app.get("/api/agent/steps")
-async def get_agent_steps():
+async def get_agent_steps(session: Session = Depends(get_current_session)):
     """获取当前任务的历史步骤列表（供新连接客户端补全历史）"""
     return {
         "success": True,
-        "task_id": webui_manager.bu_agent_task_id,
-        "steps": webui_manager.bu_step_history
+        "task_id": session.manager.bu_agent_task_id,
+        "steps": session.manager.bu_step_history,
+        "session_id": session.session_id
     }
 
 
 # ===== 日志历史查询接口 =====
 
 @app.get("/api/agent/logs")
-async def get_agent_logs():
+async def get_agent_logs(session: Session = Depends(get_current_session)):
     """获取当前任务的历史日志列表（供新连接客户端补全历史）"""
     return {
         "success": True,
-        "task_id": webui_manager.bu_agent_task_id,
-        "logs": webui_manager.bu_log_history
+        "task_id": session.manager.bu_agent_task_id,
+        "logs": session.manager.bu_log_history,
+        "session_id": session.session_id
     }
 
 
 # ===== LLM 日志历史查询接口 =====
 
 @app.get("/api/agent/llm-logs")
-async def get_agent_llm_logs():
+async def get_agent_llm_logs(session: Session = Depends(get_current_session)):
     """获取当前任务的 LLM 日志列表（供新连接客户端补全历史）"""
     return {
         "success": True,
-        "task_id": webui_manager.bu_agent_task_id,
-        "logs": webui_manager.bu_llm_log_history
+        "task_id": session.manager.bu_agent_task_id,
+        "logs": session.manager.bu_llm_log_history,
+        "session_id": session.session_id
     }
 
 
@@ -731,6 +797,12 @@ async def websocket_endpoint(websocket: WebSocket):
         "data": { ... }
     }
 
+    消息格式 (客户端发送):
+    {
+        "type": "register", "sessionId": "xxx"  # 连接后第一条消息
+        "type": "ping"                          # 心跳消息
+    }
+
     - type="step": 代理执行步骤数据（实时）
     - type="history": 连接时推送的历史步骤列表
     - type="status": 代理运行状态变更
@@ -738,51 +810,94 @@ async def websocket_endpoint(websocket: WebSocket):
     - type="log": 执行日志（实时）
     - type="log-history": 连接时推送的历史日志列表
     """
-    await ws_manager.connect(websocket)
-    # 新客户端连接后，立即推送当前历史步骤（补全错过的步骤）
-    if webui_manager.bu_step_history:
-        try:
-            await websocket.send_json({
-                "type": "history",
-                "data": {
-                    "task_id": webui_manager.bu_agent_task_id,
-                    "steps": webui_manager.bu_step_history
-                }
-            })
-        except Exception:
-            pass
-
-    # 推送历史日志
-    if webui_manager.bu_log_history:
-        try:
-            await websocket.send_json({
-                "type": "log-history",
-                "data": {
-                    "logs": webui_manager.bu_log_history
-                }
-            })
-        except Exception:
-            pass
-
-    # 推送 LLM 历史日志
-    if webui_manager.bu_llm_log_history:
-        try:
-            await websocket.send_json({
-                "type": "llm-log-history",
-                "data": {
-                    "logs": webui_manager.bu_llm_log_history
-                }
-            })
-        except Exception:
-            pass
+    await websocket.accept()
+    session = None
 
     try:
+        # 1. 等待注册消息（10秒超时）
+        register_msg = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+
+        if register_msg.get("type") != "register":
+            await websocket.send_json({"type": "error", "message": "Must register first with sessionId"})
+            await websocket.close()
+            return
+
+        session_id = register_msg.get("sessionId")
+        if not session_id:
+            await websocket.send_json({"type": "error", "message": "sessionId is required"})
+            await websocket.close()
+            return
+
+        # 2. 获取或创建会话
+        session = await session_manager.get_or_create_session(session_id)
+        await session.add_websocket(websocket)
+
+        # 3. 发送注册确认
+        await websocket.send_json({
+            "type": "registered",
+            "sessionId": session_id
+        })
+
+        # 4. 推送历史数据
+        if session.manager.bu_step_history:
+            try:
+                await websocket.send_json({
+                    "type": "history",
+                    "data": {
+                        "task_id": session.manager.bu_agent_task_id,
+                        "steps": session.manager.bu_step_history
+                    }
+                })
+            except Exception:
+                pass
+
+        # 推送历史日志
+        if session.manager.bu_log_history:
+            try:
+                await websocket.send_json({
+                    "type": "log-history",
+                    "data": {
+                        "logs": session.manager.bu_log_history
+                    }
+                })
+            except Exception:
+                pass
+
+        # 推送 LLM 历史日志
+        if session.manager.bu_llm_log_history:
+            try:
+                await websocket.send_json({
+                    "type": "llm-log-history",
+                    "data": {
+                        "logs": session.manager.bu_llm_log_history
+                    }
+                })
+            except Exception:
+                pass
+
+        # 5. 消息循环（处理心跳）
         while True:
-            # 接收客户端消息 (保持连接活跃，也可用于客户端请求)
-            data = await websocket.receive_text()
-            # 目前仅用于保持连接，未来可扩展客户端请求逻辑
+            message = await websocket.receive_json()
+
+            if message.get("type") == "ping":
+                # 更新心跳时间
+                await session.update_heartbeat()
+                # 发送心跳响应
+                await websocket.send_json({"type": "pong"})
+
+    except asyncio.TimeoutError:
+        await websocket.send_json({"type": "error", "message": "Registration timeout (10s)"})
+        await websocket.close()
+
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
+        pass
+
+    except Exception as e:
+        logging.error(f"WebSocket error: {e}", exc_info=True)
+
+    finally:
+        if session:
+            session.remove_websocket(websocket)
 
 
 @app.websocket("/ws/screen")
@@ -794,34 +909,81 @@ async def websocket_screen_endpoint(websocket: WebSocket):
 
     支持客户端发送 JSON 控制消息：
     - {"type": "quality", "quality": 70} - 调整 JPEG 质量 (10-100)
+    - {"type": "register", "sessionId": "xxx"} - 注册会话
     """
     await websocket.accept()
-    await webui_manager.add_screen_connection(websocket)
+    session = None
+
     try:
-        while True:
-            # 接收客户端消息（文本或二进制）
-            data = await websocket.receive()
+        # 1. 等待注册消息（10秒超时）
+        register_msg = await asyncio.wait_for(websocket.receive(), timeout=10.0)
 
-            # 处理文本消息（控制命令）
-            if "text" in data:
-                try:
-                    import json
-                    msg = json.loads(data["text"])
-                    if msg.get("type") == "quality":
-                        quality = msg.get("quality", 70)
-                        # 通知 webui_manager 更新质量
-                        await webui_manager.update_screencast_quality(quality)
-                except Exception as e:
-                    print(f"Error processing screen control message: {e}")
+        # 处理文本消息（注册）
+        if "text" in register_msg:
+            try:
+                msg = json.loads(register_msg["text"])
+                if msg.get("type") == "register":
+                    session_id = msg.get("sessionId")
+                    if not session_id:
+                        await websocket.send_json({"type": "error", "message": "sessionId is required"})
+                        await websocket.close()
+                        return
 
-            # 如果是二进制数据（客户端不需要发送，但保持兼容）
-            elif "bytes" in data:
-                pass
+                    # 获取或创建会话
+                    session = await session_manager.get_or_create_session(session_id)
+                    await session.add_screen_websocket(websocket)
+
+                    # 发送注册确认
+                    await websocket.send_json({
+                        "type": "registered",
+                        "sessionId": session_id
+                    })
+
+                    # 2. 进入消息循环
+                    while True:
+                        data = await websocket.receive()
+
+                        # 处理文本消息（控制命令）
+                        if "text" in data:
+                            try:
+                                msg = json.loads(data["text"])
+                                if msg.get("type") == "quality":
+                                    quality = msg.get("quality", 70)
+                                    # 通知 session.manager 更新质量
+                                    if session and hasattr(session.manager, 'update_screencast_quality'):
+                                        await session.manager.update_screencast_quality(quality)
+                                elif msg.get("type") == "ping":
+                                    # 心跳
+                                    await session.update_heartbeat()
+                                    await websocket.send_json({"type": "pong"})
+                            except Exception as e:
+                                logging.error(f"Error processing screen control message: {e}")
+
+                        # 如果是二进制数据（客户端不需要发送，但保持兼容）
+                        elif "bytes" in data:
+                            pass
+
+            except json.JSONDecodeError:
+                await websocket.send_json({"type": "error", "message": "Invalid JSON"})
+                await websocket.close()
+
+        else:
+            await websocket.send_json({"type": "error", "message": "Must register first with sessionId"})
+            await websocket.close()
+
+    except asyncio.TimeoutError:
+        await websocket.send_json({"type": "error", "message": "Registration timeout (10s)"})
+        await websocket.close()
 
     except WebSocketDisconnect:
-        webui_manager.remove_screen_connection(websocket)
-    except Exception:
-        webui_manager.remove_screen_connection(websocket)
+        pass
+
+    except Exception as e:
+        logging.error(f"Screen WebSocket error: {e}", exc_info=True)
+
+    finally:
+        if session:
+            session.remove_screen_websocket(websocket)
 
 if __name__ == "__main__":
     import uvicorn

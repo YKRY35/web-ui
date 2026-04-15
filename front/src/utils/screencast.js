@@ -11,6 +11,8 @@
  * - bm.close()：drawImage 后立即释放 GPU 纹理内存
  * - FPS 统计：实时计算并报告帧率
  */
+import { getCurrentSessionId } from './sessionId'
+
 export class ScreencastClient {
   constructor(url) {
     this.url = url
@@ -18,6 +20,7 @@ export class ScreencastClient {
     this._manualDisconnect = false
     this.reconnectTimer = null
     this.reconnectAttempts = 0
+    this.isRegistered = false
 
     // 单槽位帧队列
     this._pendingBitmap = null
@@ -52,7 +55,7 @@ export class ScreencastClient {
 
   setQuality(quality) {
     this._quality = quality
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN && this.isRegistered) {
       this.socket.send(JSON.stringify({
         type: 'quality',
         quality: quality
@@ -74,12 +77,12 @@ export class ScreencastClient {
 
     this.socket.onopen = () => {
       this.reconnectAttempts = 0
-      this._startRenderLoop()
-      this._startFPSCounter()
-      if (this.onConnected) this.onConnected()
+      // 连接后立即注册会话
+      this.registerSession()
     }
 
     this.socket.onclose = () => {
+      this.isRegistered = false
       this._stopRenderLoop()
       this._stopFPSCounter()
       if (this.onDisconnected) this.onDisconnected()
@@ -91,8 +94,26 @@ export class ScreencastClient {
     }
 
     this.socket.onmessage = (event) => {
-      // 如果是二进制数据（PNG/JPEG 帧）
-      if (event.data instanceof ArrayBuffer) {
+      // 如果是文本消息（JSON）
+      if (typeof event.data === 'string') {
+        try {
+          const msg = JSON.parse(event.data)
+          // 处理注册确认
+          if (msg.type === 'registered') {
+            this.isRegistered = true
+            this._startRenderLoop()
+            this._startFPSCounter()
+            if (this.onConnected) this.onConnected()
+          }
+          // 忽略其他消息
+        } catch (e) {
+          // 忽略无效 JSON
+        }
+        return
+      }
+
+      // 如果是二进制数据（PNG/JPEG 帧）且已注册
+      if (event.data instanceof ArrayBuffer && this.isRegistered) {
         // event.data 是 ArrayBuffer（原始图片字节）
         // 根据文件头判断格式（PNG: 89 50 4E 47, JPEG: FF D8 FF）
         const view = new Uint8Array(event.data, 0, 4)
@@ -112,16 +133,25 @@ export class ScreencastClient {
           })
           .catch(() => {}) // 忽略损坏帧
       }
-      // 如果是文本数据（JSON 消息，如确认消息等）
-      else if (typeof event.data === 'string') {
-        // 可以处理服务端的响应消息
-        try {
-          const msg = JSON.parse(event.data)
-          // console.log('Screencast message:', msg)
-        } catch (e) {
-          // 忽略无效 JSON
+    }
+  }
+
+  registerSession() {
+    const sessionId = getCurrentSessionId()
+    if (sessionId) {
+      this.socket.send(JSON.stringify({
+        type: 'register',
+        sessionId: sessionId
+      }))
+    } else {
+      console.warn('ScreencastClient: No sessionId found, will retry in 1s')
+      // 如果没有 sessionId，关闭连接并在 1 秒后重试
+      this.socket.close()
+      setTimeout(() => {
+        if (!this._manualDisconnect) {
+          this.connect()
         }
-      }
+      }, 1000)
     }
   }
 
