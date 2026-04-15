@@ -58,6 +58,26 @@ const storage = {
       console.error('Failed to load browser settings:', error)
       return null
     }
+  },
+
+  // 保存主题设置
+  saveThemeSettings: (settings) => {
+    try {
+      localStorage.setItem('theme-settings', JSON.stringify(settings))
+    } catch (error) {
+      console.error('Failed to save theme settings:', error)
+    }
+  },
+
+  // 加载主题设置
+  loadThemeSettings: () => {
+    try {
+      const settings = localStorage.getItem('theme-settings')
+      return settings ? JSON.parse(settings) : { theme: 'light' }
+    } catch (error) {
+      console.error('Failed to load theme settings:', error)
+      return { theme: 'light' }
+    }
   }
 }
 

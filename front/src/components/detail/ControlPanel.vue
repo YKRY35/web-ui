@@ -161,4 +161,15 @@ export default {
   flex-wrap: wrap;
   padding-bottom: 4px;
 }
+
+/* Dark theme styles for ControlPanel */
+#app.dark .control-panel-inner {
+  background: #2d2d2d;
+}
+
+#app.dark .status-bar {
+  background: #1a3a4d;
+  border-color: #1a3a4d;
+  color: #409eff;
+}
 </style>

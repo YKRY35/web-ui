@@ -41,3 +41,26 @@ export default {
   }
 }
 </script>
+
+<style>
+/* Dark theme styles for TabContainer */
+#app.dark .el-tabs__item {
+  color: #909399;
+}
+
+#app.dark .el-tabs__item:hover {
+  color: #409eff;
+}
+
+#app.dark .el-tabs__item.is-active {
+  color: #409eff;
+}
+
+#app.dark .el-tabs__nav-wrap::after {
+  background-color: #3d3d3d;
+}
+
+#app.dark .el-tabs__content {
+  color: #e0e0e0;
+}
+</style>

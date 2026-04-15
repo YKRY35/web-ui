@@ -14,6 +14,15 @@
         </el-button>
       </div>
       <p class="subtitle">Control your browser with AI assistance</p>
+      <el-button
+        class="settings-btn"
+        type="text"
+        icon="el-icon-setting"
+        @click="showSettingsDialog = true"
+        title="设置"
+      >
+        设置
+      </el-button>
     </div>
 
     <TabContainer :tabs="tabs" @tab-change="handleTabChange">
@@ -33,6 +42,12 @@
         <LoadSaveConfigTab @config-loaded="handleConfigLoaded" />
       </template>
     </TabContainer>
+
+    <SettingsDialog
+      :visible.sync="showSettingsDialog"
+      :settings="themeSettings"
+      @theme-change="handleThemeChange"
+    />
   </div>
 </template>
 
@@ -43,6 +58,7 @@ import BrowserSettingsTab from '@/components/pages/BrowserSettingsTab.vue'
 import BrowserUseAgentTab from '@/components/pages/BrowserUseAgentTab.vue'
 import DeepResearchAgentTab from '@/components/pages/DeepResearchAgentTab.vue'
 import LoadSaveConfigTab from '@/components/pages/LoadSaveConfigTab.vue'
+import SettingsDialog from '@/components/common/SettingsDialog.vue'
 
 export default {
   name: 'MainView',
@@ -52,7 +68,8 @@ export default {
     BrowserSettingsTab,
     BrowserUseAgentTab,
     DeepResearchAgentTab,
-    LoadSaveConfigTab
+    LoadSaveConfigTab,
+    SettingsDialog
   },
   data() {
     return {
@@ -66,11 +83,14 @@ export default {
       agentSettings: {},
       browserSettings: {},
       // 添加标志位来控制watch触发
-      isConfigLoading: false
+      isConfigLoading: false,
+      showSettingsDialog: false,
+      themeSettings: { theme: 'light' }
     }
   },
   created() {
     this.loadSettings()
+    this.loadThemeSettings()
   },
   watch: {
     agentSettings: {
@@ -104,6 +124,26 @@ export default {
       if (savedBrowserSettings) {
         this.browserSettings = savedBrowserSettings
       }
+    },
+
+    loadThemeSettings() {
+      const savedThemeSettings = this.$storage.loadThemeSettings()
+      if (savedThemeSettings) {
+        this.themeSettings = savedThemeSettings
+        // 应用主题
+        this.applyTheme(savedThemeSettings.theme)
+      }
+    },
+
+    applyTheme(theme) {
+      // 通过事件总线通知 App.vue 应用主题
+      this.$root.$emit('theme-change', theme)
+    },
+
+    handleThemeChange(theme) {
+      this.themeSettings.theme = theme
+      this.$storage.saveThemeSettings(this.themeSettings)
+      this.applyTheme(theme)
     },
 
     handleTabChange(tabName) {
@@ -159,11 +199,13 @@ export default {
   max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
+  position: relative;
 }
 
 .header {
   text-align: center;
   margin-bottom: 30px;
+  position: relative;
 }
 
 .title-container {
@@ -183,5 +225,30 @@ export default {
   font-size: 16px;
   color: #909399;
   margin: 0;
+}
+
+.settings-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 14px;
+  padding: 8px 16px;
+}
+
+/* Dark theme styles for MainView */
+#app.dark .header h1 {
+  color: #e0e0e0;
+}
+
+#app.dark .subtitle {
+  color: #909399;
+}
+
+#app.dark .settings-btn {
+  color: #b0b0b0;
+}
+
+#app.dark .settings-btn:hover {
+  color: #409eff;
 }
 </style>

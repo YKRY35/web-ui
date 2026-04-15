@@ -3,14 +3,6 @@
     <div class="steps-header">
       <span class="steps-title">执行步骤</span>
       <span class="steps-count">{{ steps.length }} 步</span>
-      <el-button
-        v-if="steps.length > 0"
-        type="text"
-        size="mini"
-        icon="el-icon-delete"
-        class="steps-clear-btn"
-        @click="clearSteps"
-      >清空</el-button>
     </div>
 
     <div class="steps-list" ref="stepsList">
@@ -280,11 +272,6 @@ export default {
       }
     },
 
-    clearSteps() {
-      this.steps = []
-      bus.$emit('steps-cleared')
-    },
-
     _scrollToBottom() {
       this.$nextTick(() => {
         const el = this.$refs.stepsList
@@ -417,13 +404,6 @@ export default {
   padding: 1px 6px;
   border-radius: 8px;
 }
-
-.steps-clear-btn {
-  margin-left: auto;
-  color: #c0c4cc;
-  font-size: 11px;
-}
-.steps-clear-btn:hover { color: #f56c6c; }
 
 .steps-list {
   flex: 1;
@@ -820,4 +800,94 @@ export default {
 .step-type-user .step-label { background: #409eff; }
 .step-type-agent .step-label { background: #67c23a; }
 .step-type-error .step-label { background: #f56c6c; }
+
+/* Dark theme styles for StepsPanel */
+#app.dark .steps-panel-inner {
+  background: #2d2d2d;
+}
+
+#app.dark .steps-header {
+  background: #252525;
+  border-bottom-color: #3d3d3d;
+}
+
+#app.dark .steps-title {
+  color: #e0e0e0;
+}
+
+#app.dark .steps-count {
+  background: #3d3d3d;
+  color: #909399;
+}
+
+#app.dark .steps-list {
+  background: #1a1a1a;
+}
+
+#app.dark .steps-empty {
+  color: #606266;
+}
+
+#app.dark .step-container {
+  background: #2d4a3f;
+}
+
+#app.dark .step-label {
+  background: #67c23a;
+  color: #fff;
+}
+
+#app.dark .step-time {
+  color: #909399;
+}
+
+#app.dark .step-intent {
+  color: #e0e0e0;
+}
+
+#app.dark .step-intent i {
+  color: #67c23a;
+}
+
+#app.dark .atomic-block {
+  background: #252525;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+#app.dark .atomic-label {
+  color: #909399;
+}
+
+#app.dark .detail-label {
+  color: #909399;
+}
+
+#app.dark .detail-value {
+  color: #e0e0e0;
+}
+
+#app.dark .param-key {
+  color: #909399;
+}
+
+#app.dark .param-value {
+  color: #e0e0e0;
+}
+
+#app.dark .monospace {
+  background: #1a1a1a;
+  color: #e0e0e0;
+}
+
+#app.dark .thought-block {
+  background: #1a1a1a;
+}
+
+#app.dark .thought-text {
+  color: #b0b0b0;
+}
+
+#app.dark .thought-block >>> .el-collapse-item__header {
+  color: #909399;
+}
 </style>

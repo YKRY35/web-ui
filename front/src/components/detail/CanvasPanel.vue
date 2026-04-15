@@ -202,4 +202,26 @@ export default {
   font-size: 14px;
   pointer-events: none;
 }
+
+/* Dark theme styles for CanvasPanel */
+#app.dark .canvas-wrapper {
+  background: #1a1a1a;
+}
+
+#app.dark .control-bar {
+  background: #2d2d2d;
+  border-bottom-color: #3d3d3d;
+}
+
+#app.dark .control-label {
+  color: #b0b0b0;
+}
+
+#app.dark .control-value {
+  color: #909399;
+}
+
+#app.dark .canvas-placeholder {
+  color: #606266;
+}
 </style>

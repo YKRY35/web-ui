@@ -21,12 +21,29 @@
           新执行页
         </el-button>
       </div>
-      <div class="session-info">
-        <span class="session-label">Session:</span>
-        <span class="session-id">{{ detailId || '...' }}</span>
+      <div class="top-bar-right">
+        <el-button
+          type="text"
+          size="mini"
+          icon="el-icon-setting"
+          @click="showSettingsDialog = true"
+          class="settings-button"
+        >
+          设置
+        </el-button>
+        <div class="session-info">
+          <span class="session-label">Session:</span>
+          <span class="session-id">{{ detailId || '...' }}</span>
+        </div>
       </div>
     </div>
     <div class="layout-container" ref="layoutContainer"></div>
+
+    <SettingsDialog
+      :visible.sync="showSettingsDialog"
+      :settings="themeSettings"
+      @theme-change="handleThemeChange"
+    />
   </div>
 </template>
 
@@ -37,6 +54,7 @@ import CanvasPanel from '@/components/detail/CanvasPanel.vue'
 import ControlPanel from '@/components/detail/ControlPanel.vue'
 import StepsPanel from '@/components/detail/StepsPanel.vue'
 import LogPanel from '@/components/detail/LogPanel.vue'
+import SettingsDialog from '@/components/common/SettingsDialog.vue'
 import { websocketManager } from '@/utils/websocket'
 import { getOrCreateDetailID } from '@/utils/detailId'
 
@@ -44,12 +62,21 @@ const DETAIL_ID_KEY = 'browser_use_detail_id'
 
 export default {
   name: 'DetailView',
+  components: {
+    SettingsDialog
+  },
   data() {
     return {
       layout: null,
       websocket: websocketManager,
-      detailId: null
+      detailId: null,
+      showSettingsDialog: false,
+      themeSettings: { theme: 'light' }
     }
+  },
+  created() {
+    // 加载主题设置
+    this.loadThemeSettings()
   },
   async mounted() {
     // 获取或创建 Detail ID
@@ -78,6 +105,24 @@ export default {
     if (this.layout) this.layout.destroy()
   },
   methods: {
+    loadThemeSettings() {
+      const savedThemeSettings = this.$storage.loadThemeSettings()
+      if (savedThemeSettings) {
+        this.themeSettings = savedThemeSettings
+        this.applyTheme(savedThemeSettings.theme)
+      }
+    },
+
+    applyTheme(theme) {
+      this.$root.$emit('theme-change', theme)
+    },
+
+    handleThemeChange(theme) {
+      this.themeSettings.theme = theme
+      this.$storage.saveThemeSettings(this.themeSettings)
+      this.applyTheme(theme)
+    },
+
     openNewDetailPage() {
       // 打开新标签页，访问 /detail 路由
       // 添加时间戳参数，强制新标签页生成新 ID
@@ -146,16 +191,16 @@ export default {
               type: 'column',
               width: 64.3,  // 左侧面板占 1.8/(1.8+1) ≈ 64.3%
               content: [
-                { type: 'component', componentType: 'canvas-panel', title: 'Canvas', height: 70 },
-                { type: 'component', componentType: 'log-panel', title: 'Logs', height: 30 }
+                { type: 'component', componentType: 'canvas-panel', title: '浏览器', height: 70 },
+                { type: 'component', componentType: 'log-panel', title: '日志', height: 30 }
               ]
             },
             {
               type: 'column',
               width: 35.7,  // 右侧面板占 1/(1.8+1) ≈ 35.7%
               content: [
-                { type: 'component', componentType: 'control-panel', title: 'Control', height: 15 },
-                { type: 'component', componentType: 'steps-panel', title: 'Steps', height: 85 }
+                { type: 'component', componentType: 'control-panel', title: '案例', height: 15 },
+                { type: 'component', componentType: 'steps-panel', title: 'UI脚本', height: 85 }
               ]
             }
           ]
@@ -196,15 +241,23 @@ export default {
   gap: 8px;
 }
 
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .back-button,
-.new-page-button {
+.new-page-button,
+.settings-button {
   padding: 4px 8px;
   font-size: 12px;
   color: #606266;
 }
 
 .back-button:hover,
-.new-page-button:hover {
+.new-page-button:hover,
+.settings-button:hover {
   color: #409eff;
 }
 
@@ -251,4 +304,58 @@ export default {
 }
 .lm_splitter { background: #dcdfe6; }
 .lm_splitter:hover, .lm_splitter.lm_dragging { background: #409EFF; }
+
+/* Dark theme styles for DetailView */
+#app.dark .top-bar {
+  background: #2d2d2d;
+  border-bottom-color: #3d3d3d;
+}
+
+#app.dark .back-button,
+#app.dark .new-page-button,
+#app.dark .settings-button {
+  color: #b0b0b0;
+}
+
+#app.dark .back-button:hover,
+#app.dark .new-page-button:hover,
+#app.dark .settings-button:hover {
+  color: #409eff;
+}
+
+#app.dark .session-label {
+  color: #909399;
+}
+
+#app.dark .session-id {
+  background: #1a3a4d;
+  color: #409eff;
+}
+
+#app.dark .lm_content {
+  background: #2d2d2d;
+}
+
+#app.dark .lm_header {
+  background: #252525;
+}
+
+#app.dark .lm_tab {
+  background: #3d3d3d;
+  color: #b0b0b0;
+}
+
+#app.dark .lm_tab.lm_active {
+  background: #2d2d2d;
+  color: #e0e0e0;
+}
+
+#app.dark .lm_splitter {
+  background: #3d3d3d;
+}
+
+#app.dark .lm_splitter:hover,
+#app.dark .lm_splitter.lm_dragging {
+  background: #409EFF;
+}
 </style>

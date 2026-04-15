@@ -1,13 +1,12 @@
 <template>
   <div class="log-panel-inner">
     <div class="log-header">
-      <span class="log-title">执行日志</span>
+      <el-radio-group v-model="activeTab" size="mini" class="log-tabs">
+        <el-radio-button label="browser-use">Browser-Use</el-radio-button>
+        <el-radio-button label="llm">LLM</el-radio-button>
+      </el-radio-group>
       <span class="log-count">{{ currentLogs.length }} 条</span>
       <div class="log-controls">
-        <el-radio-group v-model="activeTab" size="mini" class="log-tabs">
-          <el-radio-button label="browser-use">Browser-Use</el-radio-button>
-          <el-radio-button label="llm">LLM</el-radio-button>
-        </el-radio-group>
         <el-select v-model="selectedLevel" size="mini" placeholder="日志级别" class="level-select">
           <el-option label="全部" value="all"></el-option>
           <el-option label="INFO" value="info"></el-option>
@@ -335,5 +334,74 @@ export default {
 
 .log-level-debug {
   opacity: 0.7;
+}
+
+/* Dark theme styles for LogPanel */
+#app.dark .log-panel-inner {
+  background: #2d2d2d;
+}
+
+#app.dark .log-header {
+  background: #252525;
+  border-bottom-color: #3d3d3d;
+}
+
+#app.dark .log-count {
+  background: #3d3d3d;
+  color: #909399;
+}
+
+#app.dark .log-list {
+  background: #1a1a1a;
+}
+
+#app.dark .log-empty {
+  color: #606266;
+}
+
+#app.dark .log-entry:hover {
+  background: #2d2d2d;
+}
+
+#app.dark .log-time {
+  color: #909399;
+}
+
+#app.dark .log-message {
+  color: #e0e0e0;
+}
+
+#app.dark .log-level-badge.level-info {
+  background: #1a3a4d;
+  color: #409eff;
+}
+
+#app.dark .log-level-badge.level-warning {
+  background: #3d3219;
+  color: #e6a23c;
+}
+
+#app.dark .log-level-badge.level-error {
+  background: #3d1919;
+  color: #f56c6c;
+}
+
+#app.dark .log-level-badge.level-debug {
+  background: #2d2d2d;
+  color: #909399;
+}
+
+#app.dark .log-level-error {
+  border-left-color: #f56c6c;
+  background: #3d1919;
+}
+
+#app.dark .log-level-warning {
+  border-left-color: #e6a23c;
+  background: #3d3219;
+}
+
+#app.dark .log-level-info {
+  border-left-color: #409eff;
 }
 </style>
