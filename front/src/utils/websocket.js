@@ -146,6 +146,7 @@ export class WebSocketManager {
 }
 
 // 创建一个全局 WebSocket 管理器实例
+// 用于传输代理执行事件（步骤、状态、日志等）
 export const websocketManager = new WebSocketManager(
-  process.env.VUE_APP_API_BASE_URL.replace('http', 'ws') + '/ws'
+  process.env.VUE_APP_API_BASE_URL.replace('http', 'ws') + '/ws/agent-events'
 )

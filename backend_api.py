@@ -15,8 +15,10 @@ from typing import Optional
 from fastapi import FastAPI, File, UploadFile, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import logging
 
 from src.webui.webui_manager import WebuiManager
+from src.webui.log_handler import WebSocketLogHandler
 from src.utils import config
 
 
@@ -71,6 +73,28 @@ app.add_middleware(
 
 # 初始化 WebuiManager
 webui_manager = WebuiManager(ws_broadcast_func=ws_manager.broadcast)
+
+# 配置 WebSocket 日志处理器
+ws_log_handler = WebSocketLogHandler(webui_manager)
+ws_log_handler.setLevel(logging.DEBUG)
+# 使用简洁的日志格式
+ws_log_handler.setFormatter(logging.Formatter('%(levelname)s [%(name)s] %(message)s'))
+
+# 将日志处理器添加到根日志器
+root_logger = logging.getLogger()
+root_logger.addHandler(ws_log_handler)
+
+# 重要：将日志处理器添加到 browser_use 日志器
+# browser-use 库使用了独立的日志器，设置了 propagate=False
+browser_use_logger = logging.getLogger('browser_use')
+browser_use_logger.addHandler(ws_log_handler)
+browser_use_logger.setLevel(logging.DEBUG)
+
+# 同时添加到其他关键日志器
+for logger_name in ['browser_use.agent', 'browser_use.browser.session', 'browser_use.tools']:
+    logger = logging.getLogger(logger_name)
+    logger.addHandler(ws_log_handler)
+    logger.setLevel(logging.DEBUG)
 
 # 配置保存目录
 SETTINGS_SAVE_DIR = "./tmp/webui_settings"
@@ -493,6 +517,9 @@ class BrowserUseAgentRequest(BaseModel):
 async def run_agent(data: BrowserUseAgentRequest):
     """运行代理"""
     try:
+        # 发送启动日志
+        logging.info(f"[Agent] Starting agent with task: {data.task}")
+
         # 获取当前配置 - 这里 get_agent_settings 已经返回了下划线格式
         agent_settings = await get_agent_settings()
         browser_settings = await get_browser_settings()
@@ -514,12 +541,15 @@ async def run_agent(data: BrowserUseAgentRequest):
         # 运行代理任务
         task_id = await webui_manager.run_browser_use_agent(data.task, config)
 
+        logging.info(f"[Agent] Agent started successfully with task_id: {task_id}")
+
         return {
             "success": True,
             "task_id": task_id,
             "message": "Agent started successfully"
         }
     except Exception as e:
+        logging.error(f"[Agent] Failed to start agent: {str(e)}")
         return {
             "success": False,
             "message": str(e)
@@ -664,16 +694,40 @@ async def get_agent_steps():
     }
 
 
+# ===== 日志历史查询接口 =====
+
+@app.get("/api/agent/logs")
+async def get_agent_logs():
+    """获取当前任务的历史日志列表（供新连接客户端补全历史）"""
+    return {
+        "success": True,
+        "task_id": webui_manager.bu_agent_task_id,
+        "logs": webui_manager.bu_log_history
+    }
+
+
+# ===== LLM 日志历史查询接口 =====
+
+@app.get("/api/agent/llm-logs")
+async def get_agent_llm_logs():
+    """获取当前任务的 LLM 日志列表（供新连接客户端补全历史）"""
+    return {
+        "success": True,
+        "task_id": webui_manager.bu_agent_task_id,
+        "logs": webui_manager.bu_llm_log_history
+    }
+
+
 # ===== WebSocket 长连接 =====
 
-@app.websocket("/ws")
+@app.websocket("/ws/agent-events")
 async def websocket_endpoint(websocket: WebSocket):
     """
-    WebSocket 长连接端点，用于实时推送步骤数据和其他消息。
+    WebSocket 长连接端点，用于实时推送代理执行事件（步骤、状态、日志等）。
 
     消息格式 (服务端推送):
     {
-        "type": "step" | "status" | "error" | "history" | ... ,
+        "type": "step" | "status" | "error" | "history" | "log" | "log-history" | ... ,
         "data": { ... }
     }
 
@@ -681,6 +735,8 @@ async def websocket_endpoint(websocket: WebSocket):
     - type="history": 连接时推送的历史步骤列表
     - type="status": 代理运行状态变更
     - type="error": 错误信息
+    - type="log": 执行日志（实时）
+    - type="log-history": 连接时推送的历史日志列表
     """
     await ws_manager.connect(websocket)
     # 新客户端连接后，立即推送当前历史步骤（补全错过的步骤）
@@ -695,6 +751,31 @@ async def websocket_endpoint(websocket: WebSocket):
             })
         except Exception:
             pass
+
+    # 推送历史日志
+    if webui_manager.bu_log_history:
+        try:
+            await websocket.send_json({
+                "type": "log-history",
+                "data": {
+                    "logs": webui_manager.bu_log_history
+                }
+            })
+        except Exception:
+            pass
+
+    # 推送 LLM 历史日志
+    if webui_manager.bu_llm_log_history:
+        try:
+            await websocket.send_json({
+                "type": "llm-log-history",
+                "data": {
+                    "logs": webui_manager.bu_llm_log_history
+                }
+            })
+        except Exception:
+            pass
+
     try:
         while True:
             # 接收客户端消息 (保持连接活跃，也可用于客户端请求)

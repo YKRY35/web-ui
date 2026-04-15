@@ -36,6 +36,7 @@ import Vue from 'vue'
 import CanvasPanel from '@/components/detail/CanvasPanel.vue'
 import ControlPanel from '@/components/detail/ControlPanel.vue'
 import StepsPanel from '@/components/detail/StepsPanel.vue'
+import LogPanel from '@/components/detail/LogPanel.vue'
 import { websocketManager } from '@/utils/websocket'
 import { getOrCreateDetailID } from '@/utils/detailId'
 
@@ -133,14 +134,25 @@ export default {
         this.mountComponent(StepsPanel, glContainer, { $websocket: websocket })
       })
 
+      this.layout.registerComponentFactoryFunction('log-panel', (glContainer) => {
+        this.mountComponent(LogPanel, glContainer, { $websocket: websocket })
+      })
+
       this.layout.loadLayout({
         root: {
           type: 'row',
           content: [
-            { type: 'component', componentType: 'canvas-panel', title: 'Canvas', width: 50 },
             {
               type: 'column',
-              width: 50,
+              width: 64.3,  // 左侧面板占 1.8/(1.8+1) ≈ 64.3%
+              content: [
+                { type: 'component', componentType: 'canvas-panel', title: 'Canvas', height: 70 },
+                { type: 'component', componentType: 'log-panel', title: 'Logs', height: 30 }
+              ]
+            },
+            {
+              type: 'column',
+              width: 35.7,  // 右侧面板占 1/(1.8+1) ≈ 35.7%
               content: [
                 { type: 'component', componentType: 'control-panel', title: 'Control', height: 15 },
                 { type: 'component', componentType: 'steps-panel', title: 'Steps', height: 85 }

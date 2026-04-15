@@ -7,9 +7,12 @@ from datetime import datetime
 import uuid
 import asyncio
 import time
+import logging
 
 # 步骤历史最大缓存条数
 MAX_STEP_HISTORY = 200
+# 日志历史最大缓存条数
+MAX_LOG_HISTORY = 1000
 
 from browser_use.agent.service import Agent
 from browser_use.browser.session import BrowserSession
@@ -57,6 +60,12 @@ class WebuiManager:
 
         # 步骤历史缓存（内存，重启后清空）
         self.bu_step_history: List[Dict] = []
+
+        # 日志历史缓存（内存，重启后清空）
+        self.bu_log_history: List[Dict] = []
+
+        # LLM 日志历史缓存
+        self.bu_llm_log_history: List[Dict] = []
 
         # 当前配置
         self.current_agent_settings = None
@@ -196,6 +205,8 @@ class WebuiManager:
         self.bu_is_waiting_for_help = False
         self.bu_chat_history = []
         self.bu_step_history = []  # 每次新任务清空步骤历史
+        self.bu_log_history = []   # 每次新任务清空日志历史
+        self.bu_llm_log_history = []  # 每次新任务清空 LLM 日志历史
 
         try:
             browser_config = self.current_browser_settings or {}
@@ -342,6 +353,74 @@ class WebuiManager:
             except Exception as e:
                 print(f"WebSocket broadcast error: {e}")
 
+    def broadcast_log(self, level: str, message: str) -> None:
+        """
+        广播日志消息到 WebSocket
+
+        Args:
+            level: 日志级别 (info, warning, error, debug)
+            message: 日志消息
+        """
+        log_data = {
+            "type": "log",
+            "data": {
+                "timestamp": datetime.now().isoformat(),
+                "level": level,
+                "message": message
+            }
+        }
+
+        # 缓存日志历史（上限 MAX_LOG_HISTORY 条）
+        self.bu_log_history.append(log_data)
+        if len(self.bu_log_history) > MAX_LOG_HISTORY:
+            self.bu_log_history = self.bu_log_history[-MAX_LOG_HISTORY:]
+
+        # 广播日志数据
+        if self.ws_broadcast_func:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self.ws_broadcast_func(log_data))
+                else:
+                    loop.run_until_complete(self.ws_broadcast_func(log_data))
+            except Exception as e:
+                print(f"WebSocket broadcast log error: {e}")
+
+    def broadcast_llm_log(self, level: str, message: str, log_type: str = 'info') -> None:
+        """
+        广播 LLM 日志消息到 WebSocket
+
+        Args:
+            level: 日志级别 (info, warning, error, debug)
+            message: 日志消息
+            log_type: 日志类型 (input, output, info)
+        """
+        log_data = {
+            "type": "llm-log",
+            "data": {
+                "timestamp": datetime.now().isoformat(),
+                "level": level,
+                "message": message,
+                "log_type": log_type
+            }
+        }
+
+        # 缓存 LLM 日志历史（上限 MAX_LOG_HISTORY 条）
+        self.bu_llm_log_history.append(log_data)
+        if len(self.bu_llm_log_history) > MAX_LOG_HISTORY:
+            self.bu_llm_log_history = self.bu_llm_log_history[-MAX_LOG_HISTORY:]
+
+        # 广播 LLM 日志数据
+        if self.ws_broadcast_func:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self.ws_broadcast_func(log_data))
+                else:
+                    loop.run_until_complete(self.ws_broadcast_func(log_data))
+            except Exception as e:
+                print(f"WebSocket broadcast LLM log error: {e}")
+
     def _create_llm_from_config(self, config: dict):
         """根据配置创建 LLM 实例"""
         provider = config.get('llm_provider', 'openai')
@@ -370,25 +449,32 @@ class WebuiManager:
 
         print(f"DEBUG: LLM kwargs: {kwargs}")
 
+        # 创建原始 LLM 实例
+        llm = None
         if provider == 'openai':
             from browser_use.llm import ChatOpenAI
-            return ChatOpenAI(**kwargs)
+            llm = ChatOpenAI(**kwargs)
         elif provider == 'anthropic':
             from browser_use.llm import ChatAnthropic
-            return ChatAnthropic(**kwargs)
+            llm = ChatAnthropic(**kwargs)
         elif provider == 'google':
             from browser_use.llm import ChatGoogle
-            return ChatGoogle(**kwargs)
+            llm = ChatGoogle(**kwargs)
         elif provider == 'ollama':
             from browser_use.llm import ChatOllama
-            return ChatOllama(**kwargs)
+            llm = ChatOllama(**kwargs)
         elif provider == 'mistral':
             from browser_use.llm import ChatMistral
-            return ChatMistral(**kwargs)
+            llm = ChatMistral(**kwargs)
         else:
             # 默认使用 OpenAI
             from browser_use.llm import ChatOpenAI
-            return ChatOpenAI(**kwargs)
+            llm = ChatOpenAI(**kwargs)
+
+        # 包装 LLM 以记录日志
+        from src.webui.llm_log_callback import LLMLogWrapper
+        wrapped_llm = LLMLogWrapper(llm, self)
+        return wrapped_llm
 
     async def _run_agent_task(self, task: str):
         """
